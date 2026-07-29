@@ -49,10 +49,12 @@
         "title": "Goals and macro targets",
         "data": {
           "goal": "Primary goal",
-          "protein_multiplier": "Protein multiplier"
+          "protein_multiplier": "Protein multiplier",
+          "budget_mode": "Daily budget based on"
         },
         "data_description": {
-          "protein_multiplier": "Grams of protein per kg of body weight."
+          "protein_multiplier": "Grams of protein per kg of body weight.",
+          "budget_mode": "Today's TDEE makes the budget rise on workout days and fall on rest days. A rolling average spreads your recent exercise evenly, giving a steadier daily target."
         }
       },
       "exercise": {
@@ -95,6 +97,7 @@
           "display_unit": "Weight unit",
           "exercise_correction_factor": "Exercise correction factor",
           "goal": "Primary goal",
+          "budget_mode": "Daily budget based on",
           "protein_multiplier": "Protein multiplier",
           "baseline_activity_level": "Baseline activity level",
           "weight_smoothing": "Weight smoothing",
@@ -144,6 +147,13 @@
         "none": "None",
         "rolling_average": "7-day rolling average"
       }
+    },
+    "budget_mode": {
+      "options": {
+        "today": "Today's TDEE",
+        "rolling_7d": "7-day average TDEE",
+        "rolling_30d": "30-day average TDEE"
+      }
     }
   },
   "entity": {
@@ -153,6 +163,8 @@
       "exercise_gross": { "name": "Exercise gross" },
       "exercise_net": { "name": "Exercise net" },
       "tdee": { "name": "TDEE" },
+      "tdee_7d_avg": { "name": "TDEE (7-day average)" },
+      "tdee_30d_avg": { "name": "TDEE (30-day average)" },
       "exercise_count": { "name": "Exercise sessions" },
       "correction_factor": { "name": "Correction factor" },
       "daily_budget": { "name": "Daily budget" },

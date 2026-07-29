@@ -223,6 +223,48 @@ def test_rolling_average_empty():
 
 
 # ---------------------------------------------------------------------------
+# Rolling daily averages (adaptive TDEE)
+# ---------------------------------------------------------------------------
+
+
+def test_rolling_daily_average_full_window():
+    today = date(2026, 7, 28)
+    history = {
+        (today - timedelta(days=offset)).isoformat(): 300.0 for offset in range(1, 7)
+    }
+    average, days = calc.rolling_daily_average(history, 100.0, today, 7)
+    # Six completed days at 300 plus today at 100 -> 1900 / 7
+    assert days == 7
+    assert average == pytest.approx(1900 / 7)
+
+
+def test_rolling_daily_average_excludes_outside_window():
+    today = date(2026, 7, 28)
+    history = {
+        (today - timedelta(days=1)).isoformat(): 300.0,
+        (today - timedelta(days=10)).isoformat(): 9999.0,  # outside 7-day window
+    }
+    average, days = calc.rolling_daily_average(history, 100.0, today, 7)
+    assert days == 2
+    assert average == pytest.approx(200.0)
+
+
+def test_rolling_daily_average_only_today():
+    today = date(2026, 7, 28)
+    average, days = calc.rolling_daily_average({}, 250.0, today, 7)
+    assert days == 1
+    assert average == pytest.approx(250.0)
+
+
+def test_rolling_daily_average_ignores_future_and_today_in_history():
+    today = date(2026, 7, 28)
+    history = {today.isoformat(): 500.0}  # today's partial value lives outside history
+    average, days = calc.rolling_daily_average(history, 100.0, today, 7)
+    assert days == 1
+    assert average == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------------------
 # Stale data detection
 # ---------------------------------------------------------------------------
 

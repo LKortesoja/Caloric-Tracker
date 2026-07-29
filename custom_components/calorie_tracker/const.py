@@ -35,6 +35,17 @@ DEFAULT_DISPLAY_UNIT = DISPLAY_UNIT_KG
 # Config keys — goals
 CONF_GOAL = "goal"
 CONF_PROTEIN_MULTIPLIER = "protein_multiplier"
+CONF_BUDGET_MODE = "budget_mode"
+
+# Budget modes: which TDEE the daily budget is derived from.
+BUDGET_MODE_TODAY = "today"
+BUDGET_MODE_7D = "rolling_7d"
+BUDGET_MODE_30D = "rolling_30d"
+BUDGET_MODES = [BUDGET_MODE_TODAY, BUDGET_MODE_7D, BUDGET_MODE_30D]
+DEFAULT_BUDGET_MODE = BUDGET_MODE_TODAY
+
+# Days of per-day history retained for rolling averages.
+HISTORY_RETENTION_DAYS = 60
 
 # Config keys — exercise sources
 CONF_PELOTON_ENABLED = "peloton_enabled"

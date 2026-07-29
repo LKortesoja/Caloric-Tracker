@@ -39,6 +39,10 @@ total_daily_kcal = base_daily_kcal + Σ net_exercise_kcal
   (MET − 1) so RMR is never double-counted.
 - **Goals & macros** — daily calorie budget (TDEE − 500 for weight loss, +300
   for muscle gain) and protein target (weight × multiplier, default 1.8 g/kg).
+- **Adaptive budget mode** — base the daily budget on today's TDEE (default),
+  or on a rolling 7-day / 30-day average TDEE built from your actual logged
+  exercise. The rolling modes spread workout calories evenly across the week,
+  giving a steady daily target instead of one that spikes on workout days.
 - **Event-driven, no polling** — recalculates instantly via
   `async_track_state_change_event` when a mapped entity updates.
 - **Daily reset at local midnight** — exercise totals reset; weight and body
@@ -68,6 +72,8 @@ Copy `custom_components/calorie_tracker/` into your Home Assistant
 | `sensor.calorie_tracker_exercise_gross` | Today's gross exercise calories | kcal |
 | `sensor.calorie_tracker_exercise_net` | Today's net exercise calories | kcal |
 | `sensor.calorie_tracker_tdee` | Total Daily Energy Expenditure | kcal |
+| `sensor.calorie_tracker_tdee_7d_avg` | Base + average daily net exercise over the last 7 days | kcal |
+| `sensor.calorie_tracker_tdee_30d_avg` | Base + average daily net exercise over the last 30 days | kcal |
 | `sensor.calorie_tracker_exercise_count` | Exercise sessions today | — |
 | `sensor.calorie_tracker_correction_factor` | Active correction factor | — |
 | `sensor.calorie_tracker_daily_budget` | TDEE ± goal offset | kcal |
@@ -132,6 +138,21 @@ base   = RMR × PAL          (sedentary 1.2 … very active 1.725)
 TDEE   = base + Σ net exercise
 budget = TDEE + goal_offset (−500 / 0 / +300)
 ```
+
+**Rolling averages** — each day's final totals are archived at midnight, and:
+
+```
+TDEE_7d_avg  = base + mean(daily net exercise, last 7 days incl. today)
+TDEE_30d_avg = base + mean(daily net exercise, last 30 days incl. today)
+```
+
+Only days recorded since installation count toward the average, so a fresh
+install is not dragged toward zero. The *budget mode* setting picks which
+TDEE (today / 7-day / 30-day) the daily budget is derived from.
+
+Note: the PAL preset remains the estimate for non-exercise activity (NEAT).
+Truly calibrating NEAT from data would require food-intake and weight-change
+tracking, which this integration does not collect.
 
 ## Smart scale behavior
 

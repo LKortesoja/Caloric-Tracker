@@ -17,7 +17,9 @@ from homeassistant.helpers import selector
 
 from . import calculator as calc
 from .const import (
+    BUDGET_MODES,
     CONF_ACTIVITY_LEVEL,
+    CONF_BUDGET_MODE,
     CONF_BMI_ENTITY,
     CONF_BODY_FAT_ENTITY,
     CONF_BODY_FAT_PCT,
@@ -44,6 +46,7 @@ from .const import (
     CONF_WEIGHT_KG,
     CONF_WEIGHT_SMOOTHING,
     DEFAULT_ACTIVITY_LEVEL,
+    DEFAULT_BUDGET_MODE,
     DEFAULT_CORRECTION_FACTOR,
     DEFAULT_DISPLAY_UNIT,
     DEFAULT_GOAL,
@@ -245,6 +248,9 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
+                vol.Required(
+                    CONF_BUDGET_MODE, default=DEFAULT_BUDGET_MODE
+                ): _select(BUDGET_MODES, "budget_mode"),
             }
         )
         return self.async_show_form(step_id="goals", data_schema=schema)
@@ -361,6 +367,10 @@ class CalorieTrackerOptionsFlow(OptionsFlow):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
+                vol.Required(
+                    CONF_BUDGET_MODE,
+                    default=current(CONF_BUDGET_MODE, DEFAULT_BUDGET_MODE),
+                ): _select(BUDGET_MODES, "budget_mode"),
                 vol.Required(
                     CONF_ACTIVITY_LEVEL,
                     default=current(CONF_ACTIVITY_LEVEL, DEFAULT_ACTIVITY_LEVEL),

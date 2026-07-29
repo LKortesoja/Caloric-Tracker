@@ -28,6 +28,9 @@ from .const import (
     ACTIVITY_LEVELS,
     BODY_FAT_MAX,
     BODY_FAT_MIN,
+    BUDGET_MODE_7D,
+    BUDGET_MODE_30D,
+    CONF_BUDGET_MODE,
     CONF_ACTIVITY_LEVEL,
     CONF_BMI_ENTITY,
     CONF_BODY_FAT_ENTITY,
@@ -55,6 +58,7 @@ from .const import (
     CONF_WEIGHT_KG,
     CONF_WEIGHT_SMOOTHING,
     DEFAULT_ACTIVITY_LEVEL,
+    DEFAULT_BUDGET_MODE,
     DEFAULT_CORRECTION_FACTOR,
     DEFAULT_DISPLAY_UNIT,
     DEFAULT_GOAL,
@@ -70,6 +74,7 @@ from .const import (
     EXERCISE_SOURCE_MANUAL,
     EXERCISE_SOURCE_PELOTON,
     GOAL_OFFSETS,
+    HISTORY_RETENTION_DAYS,
     MET_VALUES,
     SIGNAL_UPDATE,
     SMOOTHING_ROLLING,
@@ -111,6 +116,8 @@ class CalorieTrackerCoordinator:
 
         # Exercise state
         self.sessions: list[dict[str, Any]] = []
+        # Completed-day summaries keyed by ISO date, for rolling averages.
+        self.history: dict[str, dict[str, float]] = {}
         self.correction_factor: float = self._conf(
             CONF_CORRECTION_FACTOR, DEFAULT_CORRECTION_FACTOR
         )
@@ -203,6 +210,7 @@ class CalorieTrackerCoordinator:
         self.water_pct = data.get("water_pct")
         self.scale_bmi = data.get("scale_bmi")
         self.sessions = data.get("sessions", [])
+        self.history = data.get("history", {})
         self.correction_factor = data.get(
             "correction_factor", self._conf(CONF_CORRECTION_FACTOR, DEFAULT_CORRECTION_FACTOR)
         )
@@ -236,6 +244,7 @@ class CalorieTrackerCoordinator:
             "water_pct": self.water_pct,
             "scale_bmi": self.scale_bmi,
             "sessions": self.sessions,
+            "history": self.history,
             "correction_factor": self.correction_factor,
             "last_measurement": self.last_measurement.isoformat()
             if self.last_measurement
@@ -643,16 +652,31 @@ class CalorieTrackerCoordinator:
         self.hass.async_create_task(self._async_daily_reset())
 
     async def _async_daily_reset(self) -> None:
-        """Archive today's totals and clear session data.
+        """Archive the finished day's totals and clear session data.
 
-        Weight and body composition persist; only exercise resets.
+        Weight and body composition persist; only exercise resets. A manual
+        same-day reset discards today's sessions without archiving.
         """
         _LOGGER.debug("Running daily reset (previous day: %s)", self.last_reset)
+        today = dt_util.now().date()
+        if self.last_reset != today:
+            self._archive_day(self.last_reset)
         self.sessions = []
-        self.last_reset = dt_util.now().date()
+        self.last_reset = today
         self._check_staleness()
         await self._async_save()
         self.async_update_listeners()
+
+    def _archive_day(self, day: date) -> None:
+        """Store the day's final totals for rolling averages."""
+        self.history[day.isoformat()] = {
+            "exercise_gross": round(self.exercise_gross_kcal, 1),
+            "exercise_net": round(self.exercise_net_kcal, 1),
+            "tdee": round(self.tdee, 1),
+            "sessions": self.exercise_count,
+        }
+        cutoff = (dt_util.now().date() - timedelta(days=HISTORY_RETENTION_DAYS)).isoformat()
+        self.history = {d: v for d, v in self.history.items() if d >= cutoff}
 
     async def async_reset_daily(self) -> None:
         """Service-triggered manual reset."""
@@ -777,13 +801,52 @@ class CalorieTrackerCoordinator:
     def tdee(self) -> float:
         return self.base_daily_kcal + self.exercise_net_kcal
 
+    def _exercise_net_average(self, window_days: int) -> tuple[float, int]:
+        history = {
+            day: values["exercise_net"] for day, values in self.history.items()
+        }
+        return calc.rolling_daily_average(
+            history, self.exercise_net_kcal, dt_util.now().date(), window_days
+        )
+
+    def tdee_rolling_avg(self, window_days: int) -> float:
+        """Base expenditure plus average daily net exercise over the window."""
+        average_net, _ = self._exercise_net_average(window_days)
+        return self.base_daily_kcal + average_net
+
+    def rolling_days_of_data(self, window_days: int) -> int:
+        _, days = self._exercise_net_average(window_days)
+        return days
+
+    @property
+    def tdee_7d_avg(self) -> float:
+        return self.tdee_rolling_avg(7)
+
+    @property
+    def tdee_30d_avg(self) -> float:
+        return self.tdee_rolling_avg(30)
+
     @property
     def goal(self) -> str:
         return self._conf(CONF_GOAL, DEFAULT_GOAL)
 
     @property
+    def budget_mode(self) -> str:
+        return self._conf(CONF_BUDGET_MODE, DEFAULT_BUDGET_MODE)
+
+    @property
+    def budget_tdee(self) -> float:
+        """The TDEE figure the daily budget is derived from."""
+        mode = self.budget_mode
+        if mode == BUDGET_MODE_7D:
+            return self.tdee_7d_avg
+        if mode == BUDGET_MODE_30D:
+            return self.tdee_30d_avg
+        return self.tdee
+
+    @property
     def daily_budget(self) -> float:
-        return self.tdee + GOAL_OFFSETS.get(self.goal, 0)
+        return self.budget_tdee + GOAL_OFFSETS.get(self.goal, 0)
 
     @property
     def protein_target_g(self) -> float | None:

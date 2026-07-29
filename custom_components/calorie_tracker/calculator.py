@@ -132,6 +132,28 @@ def rolling_average_weight(
     return sum(values) / len(values)
 
 
+def rolling_daily_average(
+    history: dict[str, float],
+    today_value: float,
+    today: date,
+    window_days: int,
+) -> tuple[float, int]:
+    """Average a per-day metric over the trailing window, including today.
+
+    *history* maps ISO dates to completed-day values. Only recorded days
+    count toward the divisor, so a fresh install is not dragged down by
+    days that predate the integration. Returns (average, days_of_data).
+    """
+    cutoff = today - timedelta(days=window_days - 1)
+    values = [
+        value
+        for day_iso, value in history.items()
+        if cutoff <= date.fromisoformat(day_iso) < today
+    ]
+    values.append(today_value)
+    return sum(values) / len(values), len(values)
+
+
 def is_weight_stale(
     last_measurement: datetime | None,
     now: datetime,
