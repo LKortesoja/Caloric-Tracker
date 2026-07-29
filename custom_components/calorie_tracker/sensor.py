@@ -54,6 +54,30 @@ def _tdee_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
     }
 
 
+def _recommendation_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
+    rec = coordinator.recommendation
+    return {
+        "recommendation_reason": rec.reasoning,
+        "acwr_ratio": _round(rec.acwr_ratio, 2),
+        "high_intensity_ratio": _round(rec.high_intensity_ratio, 2),
+        "is_cold_start": rec.is_cold_start,
+        "mandatory_rest": rec.mandatory_rest,
+        "strength_lockout": rec.strength_lockout,
+        "mobility_deficit": rec.mobility_deficit,
+        "acute_fatigue": rec.acute_fatigue,
+        "polarization_high_skew": rec.polarization_high_skew,
+        "strength_priority_high": rec.strength_priority_high,
+        "required_daily_pace": _round(rec.required_daily_pace, 2),
+    }
+
+
+def _acwr_value(coordinator: CalorieTrackerCoordinator) -> Any:
+    rec = coordinator.recommendation
+    if rec.acwr_ratio is None:
+        return "initializing"
+    return round(rec.acwr_ratio, 2)
+
+
 def _weight_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
     attributes = {
         "source": coordinator.weight_source,
@@ -144,6 +168,56 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         suggested_display_precision=0,
         value_fn=lambda c: _round(c.tdee_30d_avg),
         attributes_fn=lambda c: {"days_of_data": c.rolling_days_of_data(30)},
+    ),
+    CalorieTrackerSensorDescription(
+        key="workout_recommendation",
+        translation_key="workout_recommendation",
+        icon="mdi:clipboard-text-play",
+        value_fn=lambda c: c.recommendation.primary,
+        attributes_fn=_recommendation_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="acwr",
+        translation_key="acwr",
+        icon="mdi:speedometer",
+        value_fn=_acwr_value,
+        attributes_fn=lambda c: {
+            "acute_ewma_7d": _round(c.recommendation.acute_ewma),
+            "chronic_ewma_28d": _round(c.recommendation.chronic_ewma),
+            "days_of_data": c.recommendation.days_of_data,
+        },
+    ),
+    CalorieTrackerSensorDescription(
+        key="weekly_aerobic_minutes",
+        translation_key="weekly_aerobic_minutes",
+        native_unit_of_measurement="min",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:heart-pulse",
+        suggested_display_precision=0,
+        value_fn=lambda c: _round(c.weekly_aerobic_minutes),
+        attributes_fn=lambda c: {
+            "target_minutes": c.weekly_aerobic_minutes_goal,
+            "pct_complete": _round(
+                100 * c.weekly_aerobic_minutes / c.weekly_aerobic_minutes_goal
+            )
+            if c.weekly_aerobic_minutes_goal
+            else None,
+        },
+    ),
+    CalorieTrackerSensorDescription(
+        key="monthly_distance_progress",
+        translation_key="monthly_distance_progress",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:map-marker-distance",
+        suggested_display_precision=1,
+        value_fn=lambda c: _round(c.monthly_distance, 2),
+        attributes_fn=lambda c: {
+            "target_distance": c.monthly_distance_goal,
+            "required_daily_pace": _round(c.recommendation.required_daily_pace, 2),
+            "pct_complete": _round(100 * c.monthly_distance / c.monthly_distance_goal)
+            if c.monthly_distance_goal
+            else None,
+        },
     ),
     CalorieTrackerSensorDescription(
         key="exercise_count",
@@ -280,6 +354,11 @@ class CalorieTrackerSensor(SensorEntity):
             and coordinator.display_unit == DISPLAY_UNIT_LB
         ):
             self._attr_suggested_unit_of_measurement = DISPLAY_UNIT_LB
+        if description.key == "monthly_distance_progress":
+            # Distance follows the weight-unit preference: miles for lb users.
+            self._attr_native_unit_of_measurement = (
+                "mi" if coordinator.display_unit == DISPLAY_UNIT_LB else "km"
+            )
         self._attr_unique_id = f"{coordinator.entry.entry_id}_{description.key}"
         self.entity_id = f"sensor.{DOMAIN}_{description.key}"
         self._attr_device_info = DeviceInfo(

@@ -50,11 +50,21 @@
         "data": {
           "goal": "Primary goal",
           "protein_multiplier": "Protein multiplier",
-          "budget_mode": "Daily budget based on"
+          "budget_mode": "Daily budget based on",
+          "monthly_cycling_distance_goal": "Monthly cycling distance goal",
+          "weekly_aerobic_minutes_goal": "Weekly aerobic minutes goal",
+          "monthly_strength_goal": "Monthly strength sessions goal",
+          "weekly_rest_days_target": "Weekly rest days target",
+          "polarization_threshold_pct": "High-intensity threshold"
         },
         "data_description": {
           "protein_multiplier": "Grams of protein per kg of body weight.",
-          "budget_mode": "Today's TDEE makes the budget rise on workout days and fall on rest days. A rolling average spreads your recent exercise evenly, giving a steadier daily target."
+          "budget_mode": "Today's TDEE makes the budget rise on workout days and fall on rest days. A rolling average spreads your recent exercise evenly, giving a steadier daily target.",
+          "monthly_cycling_distance_goal": "Miles or km per calendar month, matching your distance sensor's unit. Recreational baseline is ~100 miles/month. Trained athletes may target 300-600+.",
+          "weekly_aerobic_minutes_goal": "ACSM recommends at least 150 minutes of moderate aerobic activity per week.",
+          "monthly_strength_goal": "Number of strength sessions per calendar month. ACSM recommends 2-3 per week.",
+          "weekly_rest_days_target": "Passive rest days per week (1-3). Caps consecutive training days.",
+          "polarization_threshold_pct": "Maximum share of high-intensity cardio sessions (last 14 days) before the engine nudges you toward low-intensity Zone 2 volume."
         }
       },
       "exercise": {
@@ -65,6 +75,7 @@
           "peloton_workout_entity": "Peloton workout status entity",
           "peloton_calories_entity": "Peloton calories entity",
           "peloton_duration_entity": "Peloton duration entity",
+          "peloton_distance_entity": "Peloton distance entity (optional)",
           "peloton_heart_rate_entity": "Peloton heart rate entity (optional)",
           "exercise_correction_factor": "Exercise correction factor"
         }
@@ -99,6 +110,11 @@
           "goal": "Primary goal",
           "budget_mode": "Daily budget based on",
           "protein_multiplier": "Protein multiplier",
+          "monthly_cycling_distance_goal": "Monthly cycling distance goal",
+          "weekly_aerobic_minutes_goal": "Weekly aerobic minutes goal",
+          "monthly_strength_goal": "Monthly strength sessions goal",
+          "weekly_rest_days_target": "Weekly rest days target",
+          "polarization_threshold_pct": "High-intensity threshold",
           "baseline_activity_level": "Baseline activity level",
           "weight_smoothing": "Weight smoothing",
           "scale_stale_threshold_days": "Stale data threshold (days)",
@@ -165,6 +181,10 @@
       "tdee": { "name": "TDEE" },
       "tdee_7d_avg": { "name": "TDEE (7-day average)" },
       "tdee_30d_avg": { "name": "TDEE (30-day average)" },
+      "workout_recommendation": { "name": "Workout recommendation" },
+      "acwr": { "name": "ACWR" },
+      "weekly_aerobic_minutes": { "name": "Weekly aerobic minutes" },
+      "monthly_distance_progress": { "name": "Monthly distance progress" },
       "exercise_count": { "name": "Exercise sessions" },
       "correction_factor": { "name": "Correction factor" },
       "daily_budget": { "name": "Daily budget" },

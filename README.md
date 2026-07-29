@@ -84,6 +84,10 @@ Copy `custom_components/calorie_tracker/` into your Home Assistant
 | `sensor.calorie_tracker_muscle_mass` | Muscle mass from scale | kg |
 | `sensor.calorie_tracker_bmi` | BMI (from scale or calculated) | kg/m² |
 | `sensor.calorie_tracker_weight_trend` | 7-day rolling average weight | kg |
+| `sensor.calorie_tracker_workout_recommendation` | Today's recommended workout (deterministic engine) | text |
+| `sensor.calorie_tracker_acwr` | EWMA Acute:Chronic Workload Ratio (`initializing` < 14 days of data) | ratio |
+| `sensor.calorie_tracker_weekly_aerobic_minutes` | Rolling 7-day aerobic minutes vs. ACSM target | min |
+| `sensor.calorie_tracker_monthly_distance_progress` | Calendar-month distance vs. goal | mi/km |
 
 The TDEE sensor exposes attributes with the active equation, PAL factor,
 today's session list (type, duration, gross/net kcal, source, HR-monitor
@@ -153,6 +157,38 @@ TDEE (today / 7-day / 30-day) the daily budget is derived from.
 Note: the PAL preset remains the estimate for non-exercise activity (NEAT).
 Truly calibrating NEAT from data would require food-intake and weight-change
 tracking, which this integration does not collect.
+
+## Workout recommendation engine
+
+A deterministic (no LLM/AI APIs) load-management engine analyzes your training
+history and produces a daily recommendation:
+
+- **EWMA ACWR** — acute (7-day, λ=0.25) and chronic (28-day, λ≈0.069)
+  exponentially weighted moving averages of daily net exercise calories.
+  `ACWR = acute / chronic`. Below 0.8 is underloading, 0.8–1.5 acceptable,
+  1.5–2.0 triggers active recovery, above 2.0 triggers full passive rest.
+  With fewer than 14 days of history the ratio reports `initializing` and the
+  engine falls back to a 75th-percentile absolute-load trigger.
+- **Recovery spacing** — consecutive training days are capped at
+  `7 − weekly_rest_days_target`; strength days are never recommended
+  back-to-back (ACSM 48–72 h guidance); fewer than 2 mobility/yoga sessions in
+  7 days appends a stretch nudge.
+- **Polarized distribution** — sessions tagged HIIT/interval/tabata (or with
+  average HR > 80% of 220 − age) count as high intensity; when they exceed the
+  configurable threshold (default 25%) of cardio sessions over 14 days, the
+  engine prescribes Zone 2 volume.
+- **Goal pacing** — monthly cycling distance and strength-session goals drive
+  the balanced-day suggestion, with the required daily pace exposed as a
+  sensor attribute.
+
+Decision priority: passive rest → active recovery → strength balance →
+polarization → goal pacing. Every derived flag (`mandatory_rest`,
+`strength_lockout`, `acute_fatigue`, …) is exposed as an attribute on
+`sensor.calorie_tracker_workout_recommendation` for use in automations.
+
+Sessions are auto-classified from their activity name (strength / mobility /
+cycling / cardio). Map the Peloton distance entity (and log `distance` in
+`log_exercise`) to feed the monthly distance goal.
 
 ## Smart scale behavior
 

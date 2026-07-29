@@ -20,6 +20,12 @@ from .const import (
     BUDGET_MODES,
     CONF_ACTIVITY_LEVEL,
     CONF_BUDGET_MODE,
+    CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
+    CONF_MONTHLY_STRENGTH_GOAL,
+    CONF_PELOTON_DISTANCE_ENTITY,
+    CONF_POLARIZATION_THRESHOLD_PCT,
+    CONF_WEEKLY_AEROBIC_MINUTES_GOAL,
+    CONF_WEEKLY_REST_DAYS_TARGET,
     CONF_BMI_ENTITY,
     CONF_BODY_FAT_ENTITY,
     CONF_BODY_FAT_PCT,
@@ -50,7 +56,12 @@ from .const import (
     DEFAULT_CORRECTION_FACTOR,
     DEFAULT_DISPLAY_UNIT,
     DEFAULT_GOAL,
+    DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
+    DEFAULT_MONTHLY_STRENGTH_GOAL,
+    DEFAULT_POLARIZATION_THRESHOLD_PCT,
     DEFAULT_PROTEIN_MULTIPLIER,
+    DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
+    DEFAULT_WEEKLY_REST_DAYS_TARGET,
     DEFAULT_RMR_EQUATION,
     DEFAULT_SMOOTHING,
     DEFAULT_STALE_THRESHOLD_DAYS,
@@ -251,6 +262,51 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(
                     CONF_BUDGET_MODE, default=DEFAULT_BUDGET_MODE
                 ): _select(BUDGET_MODES, "budget_mode"),
+                vol.Required(
+                    CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
+                    default=DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=2000, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_WEEKLY_AEROBIC_MINUTES_GOAL,
+                    default=DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=2000, step=5, unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_MONTHLY_STRENGTH_GOAL,
+                    default=DEFAULT_MONTHLY_STRENGTH_GOAL,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=31, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_WEEKLY_REST_DAYS_TARGET,
+                    default=DEFAULT_WEEKLY_REST_DAYS_TARGET,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=3, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_POLARIZATION_THRESHOLD_PCT,
+                    default=DEFAULT_POLARIZATION_THRESHOLD_PCT,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=20, max=35, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="goals", data_schema=schema)
@@ -280,6 +336,7 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(CONF_PELOTON_CALORIES_ENTITY): _sensor_selector(),
                 vol.Optional(CONF_PELOTON_DURATION_ENTITY): _sensor_selector(),
+                vol.Optional(CONF_PELOTON_DISTANCE_ENTITY): _sensor_selector(),
                 vol.Optional(CONF_PELOTON_HR_ENTITY): _sensor_selector(),
                 vol.Required(
                     CONF_CORRECTION_FACTOR, default=DEFAULT_CORRECTION_FACTOR
@@ -371,6 +428,64 @@ class CalorieTrackerOptionsFlow(OptionsFlow):
                     CONF_BUDGET_MODE,
                     default=current(CONF_BUDGET_MODE, DEFAULT_BUDGET_MODE),
                 ): _select(BUDGET_MODES, "budget_mode"),
+                vol.Required(
+                    CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
+                    default=current(
+                        CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
+                        DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=2000, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_WEEKLY_AEROBIC_MINUTES_GOAL,
+                    default=current(
+                        CONF_WEEKLY_AEROBIC_MINUTES_GOAL,
+                        DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=2000, step=5, unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_MONTHLY_STRENGTH_GOAL,
+                    default=current(
+                        CONF_MONTHLY_STRENGTH_GOAL, DEFAULT_MONTHLY_STRENGTH_GOAL
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=31, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_WEEKLY_REST_DAYS_TARGET,
+                    default=current(
+                        CONF_WEEKLY_REST_DAYS_TARGET, DEFAULT_WEEKLY_REST_DAYS_TARGET
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1, max=3, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_POLARIZATION_THRESHOLD_PCT,
+                    default=current(
+                        CONF_POLARIZATION_THRESHOLD_PCT,
+                        DEFAULT_POLARIZATION_THRESHOLD_PCT,
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=20, max=35, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
                 vol.Required(
                     CONF_ACTIVITY_LEVEL,
                     default=current(CONF_ACTIVITY_LEVEL, DEFAULT_ACTIVITY_LEVEL),

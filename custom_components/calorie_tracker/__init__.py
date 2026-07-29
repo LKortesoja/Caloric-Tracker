@@ -12,6 +12,7 @@ from .const import (
     ATTR_ACTIVITY_TYPE,
     ATTR_BODY_FAT_PCT,
     ATTR_CALORIES,
+    ATTR_DISTANCE,
     ATTR_DURATION_MINUTES,
     ATTR_FACTOR,
     ATTR_WEIGHT,
@@ -38,6 +39,7 @@ LOG_EXERCISE_SCHEMA = vol.Schema(
             vol.Coerce(float), vol.Range(min=0)
         ),
         vol.Optional(ATTR_CALORIES): vol.All(vol.Coerce(float), vol.Range(min=0)),
+        vol.Optional(ATTR_DISTANCE): vol.All(vol.Coerce(float), vol.Range(min=0)),
     }
 )
 
@@ -122,6 +124,7 @@ def _register_services(hass: HomeAssistant) -> None:
                 activity_type=call.data[ATTR_ACTIVITY_TYPE],
                 duration_minutes=call.data[ATTR_DURATION_MINUTES],
                 calories_override=call.data.get(ATTR_CALORIES),
+                distance=call.data.get(ATTR_DISTANCE),
             )
         except ValueError as err:
             raise HomeAssistantError(str(err)) from err

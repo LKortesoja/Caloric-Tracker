@@ -23,7 +23,10 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from calendar import monthrange
+
 from . import calculator as calc
+from . import recommender
 from .const import (
     ACTIVITY_LEVELS,
     BODY_FAT_MAX,
@@ -41,12 +44,16 @@ from .const import (
     CONF_DISPLAY_UNIT,
     CONF_GOAL,
     CONF_HEIGHT_CM,
+    CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
+    CONF_MONTHLY_STRENGTH_GOAL,
     CONF_MUSCLE_MASS_ENTITY,
     CONF_PELOTON_CALORIES_ENTITY,
+    CONF_PELOTON_DISTANCE_ENTITY,
     CONF_PELOTON_DURATION_ENTITY,
     CONF_PELOTON_ENABLED,
     CONF_PELOTON_HR_ENTITY,
     CONF_PELOTON_WORKOUT_ENTITY,
+    CONF_POLARIZATION_THRESHOLD_PCT,
     CONF_PROTEIN_MULTIPLIER,
     CONF_RMR_EQUATION,
     CONF_SCALE_ENABLED,
@@ -54,6 +61,8 @@ from .const import (
     CONF_STALE_THRESHOLD_DAYS,
     CONF_TEF_PERCENTAGE,
     CONF_WATER_PCT_ENTITY,
+    CONF_WEEKLY_AEROBIC_MINUTES_GOAL,
+    CONF_WEEKLY_REST_DAYS_TARGET,
     CONF_WEIGHT_ENTITY,
     CONF_WEIGHT_KG,
     CONF_WEIGHT_SMOOTHING,
@@ -62,7 +71,12 @@ from .const import (
     DEFAULT_CORRECTION_FACTOR,
     DEFAULT_DISPLAY_UNIT,
     DEFAULT_GOAL,
+    DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
+    DEFAULT_MONTHLY_STRENGTH_GOAL,
+    DEFAULT_POLARIZATION_THRESHOLD_PCT,
     DEFAULT_PROTEIN_MULTIPLIER,
+    DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
+    DEFAULT_WEEKLY_REST_DAYS_TARGET,
     DEFAULT_RMR_EQUATION,
     DEFAULT_SMOOTHING,
     DEFAULT_STALE_THRESHOLD_DAYS,
@@ -529,6 +543,17 @@ class CalorieTrackerCoordinator:
         hr_connected = False
         if hr_entity := self._conf(CONF_PELOTON_HR_ENTITY):
             hr_connected = self._numeric_state(hr_entity) is not None
+        distance = None
+        if distance_entity := self._conf(CONF_PELOTON_DISTANCE_ENTITY):
+            distance = self._numeric_state(distance_entity)
+        avg_hr = None
+        for hr_key in ("heart_rate_average", "avg_heart_rate", "average_heart_rate"):
+            if (candidate := workout_attributes.get(hr_key)) is not None:
+                try:
+                    avg_hr = float(candidate)
+                except (TypeError, ValueError):
+                    pass
+                break
         workout_type = str(
             workout_attributes.get("workout_type")
             or workout_attributes.get("fitness_discipline")
@@ -540,11 +565,26 @@ class CalorieTrackerCoordinator:
             gross_kcal=gross,
             source=EXERCISE_SOURCE_PELOTON,
             hr_monitor=hr_connected,
+            distance=distance,
+            avg_hr=avg_hr,
         )
 
     # ------------------------------------------------------------------
     # Exercise logging (shared by Peloton + services)
     # ------------------------------------------------------------------
+
+    def _classify_session(
+        self, activity_type: str, avg_hr: float | None
+    ) -> tuple[str, str]:
+        """Return (category, intensity) for an activity."""
+        category = recommender.classify_activity(activity_type)
+        hr_max = float(220 - self.age) if self.age else None
+        intensity = (
+            recommender.INTENSITY_HIGH
+            if recommender.is_high_intensity(activity_type, avg_hr, hr_max)
+            else recommender.INTENSITY_LOW
+        )
+        return category, intensity
 
     def add_session(
         self,
@@ -554,18 +594,25 @@ class CalorieTrackerCoordinator:
         source: str,
         hr_monitor: bool = False,
         apply_correction: bool | None = None,
+        distance: float | None = None,
+        avg_hr: float | None = None,
     ) -> None:
         """Add an exercise session with a device-reported gross calorie value."""
         if apply_correction is None:
             apply_correction = source == EXERCISE_SOURCE_PELOTON
         factor = self.correction_factor if apply_correction else 1.0
         net = calc.net_exercise_kcal(gross_kcal, factor, self.rmr, duration_minutes)
+        category, intensity = self._classify_session(activity_type, avg_hr)
         self.sessions.append(
             {
                 "type": activity_type,
+                "category": category,
+                "intensity": intensity,
                 "duration_minutes": round(duration_minutes, 1),
                 "gross_kcal": round(gross_kcal, 1),
                 "net_kcal": round(net, 1),
+                "distance": round(distance, 2) if distance is not None else None,
+                "avg_hr": avg_hr,
                 "source": source,
                 "hr_monitor": hr_monitor,
                 "timestamp": dt_util.now().isoformat(),
@@ -579,6 +626,7 @@ class CalorieTrackerCoordinator:
         activity_type: str,
         duration_minutes: float,
         calories_override: float | None = None,
+        distance: float | None = None,
     ) -> None:
         """Log a manual session; MET-based unless a calorie override is given."""
         if calories_override is not None:
@@ -588,6 +636,7 @@ class CalorieTrackerCoordinator:
                 gross_kcal=calories_override,
                 source=EXERCISE_SOURCE_MANUAL,
                 apply_correction=False,
+                distance=distance,
             )
             return
         met = MET_VALUES.get(activity_type)
@@ -602,12 +651,17 @@ class CalorieTrackerCoordinator:
             raise ValueError("Cannot compute MET calories: no weight is available")
         net = calc.met_net_kcal(met, weight, duration_minutes)
         gross = calc.met_gross_kcal(met, weight, duration_minutes)
+        category, intensity = self._classify_session(activity_type, None)
         self.sessions.append(
             {
                 "type": activity_type,
+                "category": category,
+                "intensity": intensity,
                 "duration_minutes": round(duration_minutes, 1),
                 "gross_kcal": round(gross, 1),
                 "net_kcal": round(net, 1),
+                "distance": round(distance, 2) if distance is not None else None,
+                "avg_hr": None,
                 "source": EXERCISE_SOURCE_MANUAL,
                 "hr_monitor": False,
                 "timestamp": dt_util.now().isoformat(),
@@ -668,15 +722,56 @@ class CalorieTrackerCoordinator:
         self.async_update_listeners()
 
     def _archive_day(self, day: date) -> None:
-        """Store the day's final totals for rolling averages."""
+        """Store the day's final totals for rolling averages and load tracking."""
         self.history[day.isoformat()] = {
             "exercise_gross": round(self.exercise_gross_kcal, 1),
             "exercise_net": round(self.exercise_net_kcal, 1),
             "tdee": round(self.tdee, 1),
             "sessions": self.exercise_count,
+            **self._session_aggregates(self.sessions),
         }
         cutoff = (dt_util.now().date() - timedelta(days=HISTORY_RETENTION_DAYS)).isoformat()
         self.history = {d: v for d, v in self.history.items() if d >= cutoff}
+
+    @staticmethod
+    def _session_aggregates(sessions: list[dict[str, Any]]) -> dict[str, float]:
+        """Aggregate a session list into the per-day training metrics."""
+        aggregates = {
+            "aerobic_minutes": 0.0,
+            "distance": 0.0,
+            "strength_sessions": 0,
+            "mobility_sessions": 0,
+            "cycling_sessions": 0,
+            "cardio_sessions": 0,
+            "high_intensity_cardio": 0,
+        }
+        for session in sessions:
+            category = session.get("category") or recommender.classify_activity(
+                session.get("type", "")
+            )
+            if recommender.is_aerobic(category):
+                aggregates["aerobic_minutes"] += session.get("duration_minutes", 0.0)
+                aggregates["cardio_sessions"] += 1
+                if session.get("intensity") == recommender.INTENSITY_HIGH:
+                    aggregates["high_intensity_cardio"] += 1
+            if category == recommender.CATEGORY_STRENGTH:
+                aggregates["strength_sessions"] += 1
+            if category == recommender.CATEGORY_MOBILITY:
+                aggregates["mobility_sessions"] += 1
+            if category == recommender.CATEGORY_CYCLING:
+                aggregates["cycling_sessions"] += 1
+            aggregates["distance"] += session.get("distance") or 0.0
+        return aggregates
+
+    def _history_window_sum(self, key: str, window_days: int) -> float:
+        """Sum a per-day metric over the last *window_days* completed days."""
+        today = dt_util.now().date()
+        total = 0.0
+        for offset in range(1, window_days):
+            entry = self.history.get((today - timedelta(days=offset)).isoformat())
+            if entry:
+                total += entry.get(key, 0)
+        return total
 
     async def async_reset_daily(self) -> None:
         """Service-triggered manual reset."""
@@ -847,6 +942,137 @@ class CalorieTrackerCoordinator:
     @property
     def daily_budget(self) -> float:
         return self.budget_tdee + GOAL_OFFSETS.get(self.goal, 0)
+
+    # ------------------------------------------------------------------
+    # Workout recommendation engine
+    # ------------------------------------------------------------------
+
+    @property
+    def monthly_distance_goal(self) -> float:
+        return float(
+            self._conf(
+                CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
+                DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
+            )
+        )
+
+    @property
+    def weekly_aerobic_minutes_goal(self) -> int:
+        return int(
+            self._conf(
+                CONF_WEEKLY_AEROBIC_MINUTES_GOAL, DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL
+            )
+        )
+
+    @property
+    def weekly_aerobic_minutes(self) -> float:
+        today_aggregates = self._session_aggregates(self.sessions)
+        return (
+            self._history_window_sum("aerobic_minutes", 7)
+            + today_aggregates["aerobic_minutes"]
+        )
+
+    def _month_sum(self, key: str) -> float:
+        month_prefix = dt_util.now().date().strftime("%Y-%m")
+        return sum(
+            entry.get(key, 0)
+            for day, entry in self.history.items()
+            if day.startswith(month_prefix)
+        )
+
+    @property
+    def monthly_distance(self) -> float:
+        today_aggregates = self._session_aggregates(self.sessions)
+        return self._month_sum("distance") + today_aggregates["distance"]
+
+    @property
+    def monthly_strength_sessions(self) -> int:
+        today_aggregates = self._session_aggregates(self.sessions)
+        return int(
+            self._month_sum("strength_sessions")
+            + today_aggregates["strength_sessions"]
+        )
+
+    def _training_snapshot(self) -> recommender.TrainingSnapshot:
+        today = dt_util.now().date()
+        today_aggregates = self._session_aggregates(self.sessions)
+
+        # Chronological 28-day load series ending with today's running total.
+        daily_loads: list[float] = []
+        days_of_data = 1  # today
+        for offset in range(27, 0, -1):
+            entry = self.history.get((today - timedelta(days=offset)).isoformat())
+            if entry is not None:
+                days_of_data += 1
+                daily_loads.append(entry.get("exercise_net", 0.0))
+            else:
+                daily_loads.append(0.0)
+        daily_loads.append(self.exercise_net_kcal)
+
+        yesterday_entry = self.history.get(
+            (today - timedelta(days=1)).isoformat(), {}
+        )
+
+        # Consecutive training-day streak ending today (or yesterday).
+        consecutive = 1 if self.exercise_count > 0 else 0
+        day = today - timedelta(days=1)
+        while (entry := self.history.get(day.isoformat())) and entry.get(
+            "sessions", 0
+        ) > 0:
+            consecutive += 1
+            day -= timedelta(days=1)
+
+        days_in_month = monthrange(today.year, today.month)[1]
+
+        return recommender.TrainingSnapshot(
+            daily_loads_28d=daily_loads,
+            days_of_data=days_of_data,
+            yesterday_load=yesterday_entry.get("exercise_net", 0.0),
+            consecutive_training_days=consecutive,
+            strength_yesterday=yesterday_entry.get("strength_sessions", 0) > 0,
+            mobility_sessions_7d=int(
+                self._history_window_sum("mobility_sessions", 7)
+                + today_aggregates["mobility_sessions"]
+            ),
+            cardio_sessions_14d=int(
+                self._history_window_sum("cardio_sessions", 14)
+                + today_aggregates["cardio_sessions"]
+            ),
+            high_intensity_cardio_14d=int(
+                self._history_window_sum("high_intensity_cardio", 14)
+                + today_aggregates["high_intensity_cardio"]
+            ),
+            cycling_sessions_14d=int(
+                self._history_window_sum("cycling_sessions", 14)
+                + today_aggregates["cycling_sessions"]
+            ),
+            total_sessions_14d=int(
+                self._history_window_sum("sessions", 14) + self.exercise_count
+            ),
+            strength_sessions_month=self.monthly_strength_sessions,
+            day_of_month=today.day,
+            days_in_month=days_in_month,
+            monthly_distance=self.monthly_distance,
+            monthly_distance_goal=self.monthly_distance_goal,
+            monthly_strength_goal=int(
+                self._conf(CONF_MONTHLY_STRENGTH_GOAL, DEFAULT_MONTHLY_STRENGTH_GOAL)
+            ),
+            weekly_rest_days_target=int(
+                self._conf(
+                    CONF_WEEKLY_REST_DAYS_TARGET, DEFAULT_WEEKLY_REST_DAYS_TARGET
+                )
+            ),
+            polarization_threshold_pct=int(
+                self._conf(
+                    CONF_POLARIZATION_THRESHOLD_PCT,
+                    DEFAULT_POLARIZATION_THRESHOLD_PCT,
+                )
+            ),
+        )
+
+    @property
+    def recommendation(self) -> recommender.Recommendation:
+        return recommender.evaluate(self._training_snapshot())
 
     @property
     def protein_target_g(self) -> float | None:

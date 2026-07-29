@@ -132,6 +132,38 @@ def rolling_average_weight(
     return sum(values) / len(values)
 
 
+def ewma_lambda(n_days: int) -> float:
+    """Smoothing factor for an N-day exponentially weighted moving average."""
+    return 2 / (n_days + 1)
+
+
+def ewma(loads: list[float], lam: float) -> float | None:
+    """EWMA over a chronological series: today = load*λ + yesterday*(1-λ).
+
+    Seeded with the first value; None for an empty series.
+    """
+    if not loads:
+        return None
+    value = loads[0]
+    for load in loads[1:]:
+        value = load * lam + value * (1 - lam)
+    return value
+
+
+def percentile(values: list[float], pct: float) -> float | None:
+    """Percentile with linear interpolation (numpy 'linear' method)."""
+    if not values:
+        return None
+    ordered = sorted(values)
+    if len(ordered) == 1:
+        return ordered[0]
+    rank = (pct / 100) * (len(ordered) - 1)
+    lower = int(rank)
+    upper = min(lower + 1, len(ordered) - 1)
+    fraction = rank - lower
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * fraction
+
+
 def rolling_daily_average(
     history: dict[str, float],
     today_value: float,

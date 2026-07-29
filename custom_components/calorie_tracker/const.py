@@ -47,6 +47,20 @@ DEFAULT_BUDGET_MODE = BUDGET_MODE_TODAY
 # Days of per-day history retained for rolling averages.
 HISTORY_RETENTION_DAYS = 60
 
+# Config keys — workout recommendation engine
+CONF_MONTHLY_CYCLING_DISTANCE_GOAL = "monthly_cycling_distance_goal"
+CONF_WEEKLY_AEROBIC_MINUTES_GOAL = "weekly_aerobic_minutes_goal"
+CONF_MONTHLY_STRENGTH_GOAL = "monthly_strength_goal"
+CONF_WEEKLY_REST_DAYS_TARGET = "weekly_rest_days_target"
+CONF_POLARIZATION_THRESHOLD_PCT = "polarization_threshold_pct"
+CONF_PELOTON_DISTANCE_ENTITY = "peloton_distance_entity"
+
+DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL = 100.0
+DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL = 150
+DEFAULT_MONTHLY_STRENGTH_GOAL = 12
+DEFAULT_WEEKLY_REST_DAYS_TARGET = 1
+DEFAULT_POLARIZATION_THRESHOLD_PCT = 25
+
 # Config keys — exercise sources
 CONF_PELOTON_ENABLED = "peloton_enabled"
 CONF_PELOTON_WORKOUT_ENTITY = "peloton_workout_entity"
@@ -123,6 +137,7 @@ SERVICE_RESET_DAILY = "reset_daily"
 ATTR_ACTIVITY_TYPE = "activity_type"
 ATTR_DURATION_MINUTES = "duration_minutes"
 ATTR_CALORIES = "calories"
+ATTR_DISTANCE = "distance"
 ATTR_FACTOR = "factor"
 ATTR_WEIGHT = "weight"
 ATTR_WEIGHT_UNIT = "unit"
