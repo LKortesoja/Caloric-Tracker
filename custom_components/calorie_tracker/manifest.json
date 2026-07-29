@@ -1,13 +1,13 @@
 {
   "domain": "calorie_tracker",
   "name": "Calorie Tracker",
-  "codeowners": ["@lancekortesoja"],
+  "codeowners": ["@LKortesoja"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/lancekortesoja/calorie_tracker",
+  "documentation": "https://github.com/LKortesoja/Caloric-Tracker",
   "integration_type": "service",
   "iot_class": "calculated",
-  "issue_tracker": "https://github.com/lancekortesoja/calorie_tracker/issues",
+  "issue_tracker": "https://github.com/LKortesoja/Caloric-Tracker/issues",
   "requirements": [],
   "single_config_entry": true,
   "version": "1.0.0"
