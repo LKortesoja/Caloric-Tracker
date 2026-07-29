@@ -176,3 +176,7 @@ dependencies. Run the unit tests with:
 ```
 python -m pytest tests/ -v
 ```
+
+## License
+
+[MIT](LICENSE)

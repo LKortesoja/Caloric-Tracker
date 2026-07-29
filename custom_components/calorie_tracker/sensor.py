@@ -1,4 +1,4 @@
-"""Sensor platform for the Calorie Tracker integration."""
+﻿"""Sensor platform for the Calorie Tracker integration."""
 from __future__ import annotations
 
 from collections.abc import Callable
@@ -76,6 +76,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement=UNIT_KCAL_PER_DAY,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:fire",
+        suggested_display_precision=0,
         value_fn=lambda c: _round(c.rmr),
         attributes_fn=lambda c: {
             "rmr_equation_used": c.rmr_equation,
@@ -88,6 +89,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement=UNIT_KCAL_PER_DAY,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:home-heart",
+        suggested_display_precision=0,
         value_fn=lambda c: _round(c.base_daily_kcal),
         attributes_fn=lambda c: {"pal_factor": c.pal_factor},
     ),
@@ -97,6 +99,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement=UNIT_KCAL,
         state_class=SensorStateClass.TOTAL,
         icon="mdi:run-fast",
+        suggested_display_precision=0,
         daily_total=True,
         value_fn=lambda c: _round(c.exercise_gross_kcal),
     ),
@@ -106,6 +109,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement=UNIT_KCAL,
         state_class=SensorStateClass.TOTAL,
         icon="mdi:run",
+        suggested_display_precision=0,
         daily_total=True,
         value_fn=lambda c: _round(c.exercise_net_kcal),
         attributes_fn=lambda c: {"correction_factor": c.correction_factor},
@@ -116,6 +120,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement=UNIT_KCAL,
         state_class=SensorStateClass.TOTAL,
         icon="mdi:lightning-bolt",
+        suggested_display_precision=0,
         daily_total=True,
         value_fn=lambda c: _round(c.tdee),
         attributes_fn=_tdee_attributes,
@@ -141,6 +146,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement=UNIT_KCAL,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:food-apple",
+        suggested_display_precision=0,
         value_fn=lambda c: _round(c.daily_budget),
         attributes_fn=lambda c: {"goal": c.goal},
     ),
@@ -150,6 +156,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement="g",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:food-steak",
+        suggested_display_precision=0,
         value_fn=lambda c: _round(c.protein_target_g),
     ),
     CalorieTrackerSensorDescription(
@@ -159,7 +166,8 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:scale-bathroom",
-        value_fn=lambda c: _round(c.effective_weight_kg),
+        suggested_display_precision=1,
+        value_fn=lambda c: c.effective_weight_kg,
         attributes_fn=_weight_attributes,
     ),
     CalorieTrackerSensorDescription(
@@ -168,7 +176,8 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement="%",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:percent",
-        value_fn=lambda c: _round(c.body_fat_pct),
+        suggested_display_precision=1,
+        value_fn=lambda c: c.body_fat_pct,
         attributes_fn=lambda c: {"fat_mass_kg": _round(c.fat_mass_kg)},
     ),
     CalorieTrackerSensorDescription(
@@ -178,7 +187,8 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:arm-flex",
-        value_fn=lambda c: _round(c.fat_free_mass_kg),
+        suggested_display_precision=1,
+        value_fn=lambda c: c.fat_free_mass_kg,
     ),
     CalorieTrackerSensorDescription(
         key="muscle_mass",
@@ -187,7 +197,8 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:weight-lifter",
-        value_fn=lambda c: _round(c.muscle_mass_kg),
+        suggested_display_precision=1,
+        value_fn=lambda c: c.muscle_mass_kg,
     ),
     CalorieTrackerSensorDescription(
         key="bmi",
@@ -195,7 +206,8 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         native_unit_of_measurement="kg/m²",
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:human",
-        value_fn=lambda c: _round(c.bmi),
+        suggested_display_precision=1,
+        value_fn=lambda c: c.bmi,
     ),
     CalorieTrackerSensorDescription(
         key="weight_trend",
@@ -204,7 +216,8 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:chart-line",
-        value_fn=lambda c: _round(c.weight_trend_kg),
+        suggested_display_precision=1,
+        value_fn=lambda c: c.weight_trend_kg,
     ),
 )
 
