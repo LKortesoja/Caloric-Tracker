@@ -26,6 +26,12 @@ CONF_BMI_ENTITY = "bmi_entity"
 CONF_WEIGHT_SMOOTHING = "weight_smoothing"
 CONF_STALE_THRESHOLD_DAYS = "scale_stale_threshold_days"
 
+# Config keys — display
+CONF_DISPLAY_UNIT = "display_unit"
+DISPLAY_UNIT_KG = "kg"
+DISPLAY_UNIT_LB = "lb"
+DEFAULT_DISPLAY_UNIT = DISPLAY_UNIT_KG
+
 # Config keys — goals
 CONF_GOAL = "goal"
 CONF_PROTEIN_MULTIPLIER = "protein_multiplier"
@@ -107,7 +113,8 @@ ATTR_ACTIVITY_TYPE = "activity_type"
 ATTR_DURATION_MINUTES = "duration_minutes"
 ATTR_CALORIES = "calories"
 ATTR_FACTOR = "factor"
-ATTR_WEIGHT_KG = "weight_kg"
+ATTR_WEIGHT = "weight"
+ATTR_WEIGHT_UNIT = "unit"
 ATTR_BODY_FAT_PCT = "body_fat_pct"
 
 # Dispatcher signal (formatted with entry_id)

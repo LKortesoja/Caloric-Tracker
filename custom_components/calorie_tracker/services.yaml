@@ -63,18 +63,29 @@ log_weight:
   name: Log weight
   description: Manually log a weight measurement (when no smart scale is connected).
   fields:
-    weight_kg:
+    weight:
       name: Weight
-      description: Weight in kilograms.
+      description: Weight value, interpreted in the unit below.
       required: true
-      example: 82.5
+      example: 180
       selector:
         number:
           min: 20
-          max: 500
+          max: 1200
           step: 0.1
-          unit_of_measurement: kg
           mode: box
+    unit:
+      name: Unit
+      description: >-
+        Unit of the weight value. Defaults to the display unit configured for
+        the integration.
+      required: false
+      example: lb
+      selector:
+        select:
+          options:
+            - kg
+            - lb
 
 log_body_fat:
   name: Log body fat

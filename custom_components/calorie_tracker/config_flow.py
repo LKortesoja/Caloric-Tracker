@@ -15,6 +15,7 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 
+from . import calculator as calc
 from .const import (
     CONF_ACTIVITY_LEVEL,
     CONF_BMI_ENTITY,
@@ -23,6 +24,7 @@ from .const import (
     CONF_BONE_MASS_ENTITY,
     CONF_CORRECTION_FACTOR,
     CONF_DATE_OF_BIRTH,
+    CONF_DISPLAY_UNIT,
     CONF_GOAL,
     CONF_HEIGHT_CM,
     CONF_MUSCLE_MASS_ENTITY,
@@ -43,12 +45,15 @@ from .const import (
     CONF_WEIGHT_SMOOTHING,
     DEFAULT_ACTIVITY_LEVEL,
     DEFAULT_CORRECTION_FACTOR,
+    DEFAULT_DISPLAY_UNIT,
     DEFAULT_GOAL,
     DEFAULT_PROTEIN_MULTIPLIER,
     DEFAULT_RMR_EQUATION,
     DEFAULT_SMOOTHING,
     DEFAULT_STALE_THRESHOLD_DAYS,
     DEFAULT_TEF_PERCENTAGE,
+    DISPLAY_UNIT_KG,
+    DISPLAY_UNIT_LB,
     DOMAIN,
     EQUATION_CUNNINGHAM,
     GOAL_MAINTENANCE,
@@ -96,14 +101,28 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
+            # Weight is entered in the chosen display unit; store canonical kg.
+            if (
+                user_input.get(CONF_DISPLAY_UNIT) == DISPLAY_UNIT_LB
+                and user_input.get(CONF_WEIGHT_KG) is not None
+            ):
+                user_input[CONF_WEIGHT_KG] = round(
+                    calc.convert_weight_to_kg(
+                        user_input[CONF_WEIGHT_KG], DISPLAY_UNIT_LB
+                    ),
+                    2,
+                )
             self._data.update(user_input)
             return await self.async_step_smart_scale()
 
         schema = vol.Schema(
             {
+                vol.Required(
+                    CONF_DISPLAY_UNIT, default=DEFAULT_DISPLAY_UNIT
+                ): _select([DISPLAY_UNIT_KG, DISPLAY_UNIT_LB], "display_unit"),
                 vol.Optional(CONF_WEIGHT_KG): selector.NumberSelector(
                     selector.NumberSelectorConfig(
-                        min=20, max=500, step=0.1, unit_of_measurement="kg",
+                        min=20, max=500, step=0.1,
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
@@ -315,6 +334,10 @@ class CalorieTrackerOptionsFlow(OptionsFlow):
 
         schema = vol.Schema(
             {
+                vol.Required(
+                    CONF_DISPLAY_UNIT,
+                    default=current(CONF_DISPLAY_UNIT, DEFAULT_DISPLAY_UNIT),
+                ): _select([DISPLAY_UNIT_KG, DISPLAY_UNIT_LB], "display_unit"),
                 vol.Required(
                     CONF_CORRECTION_FACTOR,
                     default=current(CONF_CORRECTION_FACTOR, DEFAULT_CORRECTION_FACTOR),

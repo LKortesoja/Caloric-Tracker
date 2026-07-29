@@ -35,6 +35,7 @@ from .const import (
     CONF_BONE_MASS_ENTITY,
     CONF_CORRECTION_FACTOR,
     CONF_DATE_OF_BIRTH,
+    CONF_DISPLAY_UNIT,
     CONF_GOAL,
     CONF_HEIGHT_CM,
     CONF_MUSCLE_MASS_ENTITY,
@@ -55,6 +56,7 @@ from .const import (
     CONF_WEIGHT_SMOOTHING,
     DEFAULT_ACTIVITY_LEVEL,
     DEFAULT_CORRECTION_FACTOR,
+    DEFAULT_DISPLAY_UNIT,
     DEFAULT_GOAL,
     DEFAULT_PROTEIN_MULTIPLIER,
     DEFAULT_RMR_EQUATION,
@@ -100,6 +102,8 @@ class CalorieTrackerCoordinator:
         self.last_measurement: datetime | None = None
         self.weight_readings: list[tuple[datetime, float]] = []
         self.body_fat_pct: float | None = None
+        self.fat_mass_kg: float | None = None
+        self._body_fat_from_fat_mass = False
         self.muscle_mass_kg: float | None = None
         self.bone_mass_kg: float | None = None
         self.water_pct: float | None = None
@@ -192,6 +196,8 @@ class CalorieTrackerCoordinator:
         self.weight_kg = data.get("weight_kg")
         self.weight_source = data.get("weight_source", SOURCE_MANUAL)
         self.body_fat_pct = data.get("body_fat_pct")
+        self.fat_mass_kg = data.get("fat_mass_kg")
+        self._body_fat_from_fat_mass = data.get("body_fat_from_fat_mass", False)
         self.muscle_mass_kg = data.get("muscle_mass_kg")
         self.bone_mass_kg = data.get("bone_mass_kg")
         self.water_pct = data.get("water_pct")
@@ -223,6 +229,8 @@ class CalorieTrackerCoordinator:
             "weight_kg": self.weight_kg,
             "weight_source": self.weight_source,
             "body_fat_pct": self.body_fat_pct,
+            "fat_mass_kg": self.fat_mass_kg,
+            "body_fat_from_fat_mass": self._body_fat_from_fat_mass,
             "muscle_mass_kg": self.muscle_mass_kg,
             "bone_mass_kg": self.bone_mass_kg,
             "water_pct": self.water_pct,
@@ -264,18 +272,31 @@ class CalorieTrackerCoordinator:
                 state = self.hass.states.get(entity_id)
                 unit = state.attributes.get("unit_of_measurement") if state else None
                 self._apply_scale_weight(calc.convert_weight_to_kg(value, unit))
+        if entity_id := self._conf(CONF_BODY_FAT_ENTITY):
+            if (value := self._numeric_state(entity_id)) is not None:
+                self._apply_body_fat_reading(value, self._state_unit(entity_id))
         for conf_key, attr in (
-            (CONF_BODY_FAT_ENTITY, "body_fat_pct"),
             (CONF_MUSCLE_MASS_ENTITY, "muscle_mass_kg"),
             (CONF_BONE_MASS_ENTITY, "bone_mass_kg"),
+        ):
+            if entity_id := self._conf(conf_key):
+                if (value := self._numeric_state(entity_id)) is not None:
+                    setattr(
+                        self,
+                        attr,
+                        calc.convert_weight_to_kg(value, self._state_unit(entity_id)),
+                    )
+        for conf_key, attr in (
             (CONF_WATER_PCT_ENTITY, "water_pct"),
             (CONF_BMI_ENTITY, "scale_bmi"),
         ):
             if entity_id := self._conf(conf_key):
                 if (value := self._numeric_state(entity_id)) is not None:
-                    if attr == "body_fat_pct" and not calc.is_valid_body_fat(value):
-                        continue
                     setattr(self, attr, value)
+
+    def _state_unit(self, entity_id: str) -> str | None:
+        state = self.hass.states.get(entity_id)
+        return state.attributes.get("unit_of_measurement") if state else None
 
     def _numeric_state(self, entity_id: str) -> float | None:
         state = self.hass.states.get(entity_id)
@@ -307,6 +328,9 @@ class CalorieTrackerCoordinator:
                 self.async_update_listeners()
             return
         self._apply_scale_weight(calc.convert_weight_to_kg(value, unit))
+        if self._body_fat_from_fat_mass:
+            # Body fat came from a fat-mass entity: keep % in sync with weight.
+            self._derive_percent_from_fat_mass()
         self._check_staleness()
         self._schedule_save()
         self.async_update_listeners()
@@ -324,9 +348,26 @@ class CalorieTrackerCoordinator:
 
     @callback
     def _handle_body_fat_event(self, event: Event) -> None:
-        value, _ = self._event_value(event)
+        value, unit = self._event_value(event)
         if value is None:
             return
+        if not self._apply_body_fat_reading(value, unit):
+            return
+        self._schedule_save()
+        self.async_update_listeners()
+
+    def _apply_body_fat_reading(self, value: float, unit: str | None) -> bool:
+        """Apply a body fat reading that may be a percentage or a fat mass.
+
+        Scales such as Withings and Xiaomi report fat *mass* (kg/lb) rather
+        than a percentage; the unit of measurement decides how the value is
+        interpreted. Returns True when state changed.
+        """
+        if calc.is_mass_unit(unit):
+            fat_mass_kg = calc.convert_weight_to_kg(value, unit)
+            self.fat_mass_kg = fat_mass_kg
+            self._body_fat_from_fat_mass = True
+            return self._derive_percent_from_fat_mass()
         if not calc.is_valid_body_fat(value):
             _LOGGER.warning(
                 "Ignoring body fat reading %.1f%% outside the plausible %s-%s%% range",
@@ -334,10 +375,28 @@ class CalorieTrackerCoordinator:
                 BODY_FAT_MIN,
                 BODY_FAT_MAX,
             )
-            return
+            return False
         self.body_fat_pct = value
-        self._schedule_save()
-        self.async_update_listeners()
+        self._body_fat_from_fat_mass = False
+        return True
+
+    def _derive_percent_from_fat_mass(self) -> bool:
+        """Recompute body fat % from the stored fat mass and current weight."""
+        if self.fat_mass_kg is None or self.weight_kg is None:
+            _LOGGER.debug("Fat mass received but no weight available yet")
+            return False
+        percent = calc.fat_mass_to_percent(self.fat_mass_kg, self.weight_kg)
+        if percent is None or not calc.is_valid_body_fat(percent):
+            _LOGGER.warning(
+                "Derived body fat %s%% from fat mass %.1f kg / weight %.1f kg "
+                "is implausible; ignoring",
+                f"{percent:.1f}" if percent is not None else "?",
+                self.fat_mass_kg,
+                self.weight_kg,
+            )
+            return False
+        self.body_fat_pct = percent
+        return True
 
     @callback
     def _handle_muscle_mass_event(self, event: Event) -> None:
@@ -553,12 +612,15 @@ class CalorieTrackerCoordinator:
         self._schedule_save()
         self.async_update_listeners()
 
-    def log_weight(self, weight_kg: float) -> None:
+    def log_weight(self, weight: float, unit: str | None = None) -> None:
         now = dt_util.now()
+        weight_kg = calc.convert_weight_to_kg(weight, unit or self.display_unit)
         self.weight_kg = weight_kg
         self.weight_source = SOURCE_MANUAL
         self.last_measurement = now
         self.weight_readings.append((now, weight_kg))
+        if self._body_fat_from_fat_mass:
+            self._derive_percent_from_fat_mass()
         self._schedule_save()
         self.async_update_listeners()
 
@@ -568,6 +630,7 @@ class CalorieTrackerCoordinator:
                 f"Body fat must be between {BODY_FAT_MIN} and {BODY_FAT_MAX} percent"
             )
         self.body_fat_pct = body_fat_pct
+        self._body_fat_from_fat_mass = False
         self._schedule_save()
         self.async_update_listeners()
 
@@ -609,6 +672,10 @@ class CalorieTrackerCoordinator:
         if dob is None:
             return None
         return calc.calculate_age(dob, dt_util.now().date())
+
+    @property
+    def display_unit(self) -> str:
+        return self._conf(CONF_DISPLAY_UNIT, DEFAULT_DISPLAY_UNIT)
 
     @property
     def smoothing_enabled(self) -> bool:

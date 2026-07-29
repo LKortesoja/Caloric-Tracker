@@ -24,7 +24,12 @@ total_daily_kcal = base_daily_kcal + Σ net_exercise_kcal
 - **Smart scale support** — map any Home Assistant weight / body-fat / muscle /
   bone / water / BMI sensor (Withings, Xiaomi, Garmin, Fitbit, Renpho, Eufy, or
   any generic scale). Automatic lbs/stones→kg conversion, optional 7-day
-  rolling-average smoothing, and stale-data alerts.
+  rolling-average smoothing, and stale-data alerts. The body fat entity accepts
+  either a **percentage** sensor or a **fat mass** sensor (kg/lb) — many scales
+  such as Withings report fat mass, and the unit is detected automatically.
+- **kg or lb display** — pick your preferred weight unit during setup (or in
+  options). Values are stored in kg internally so statistics stay consistent,
+  and Home Assistant renders all weight sensors in pounds when selected.
 - **Peloton integration** — converts device-reported *gross* calories to *net*
   calories by subtracting the resting metabolic component for the session
   duration, with a configurable correction factor (consumer devices can
@@ -84,7 +89,7 @@ flag), correction factor, weight source, and last-update timestamp.
 |---|---|---|
 | `calorie_tracker.log_exercise` | `activity_type`, `duration_minutes`, `calories` (optional) | Log a session. Without `calories`, uses the MET table; with `calories`, treats it as gross device calories and subtracts the resting component. |
 | `calorie_tracker.set_correction_factor` | `factor` (0.50–1.00) | Update the exercise correction factor. |
-| `calorie_tracker.log_weight` | `weight_kg` | Manually log a weight measurement. |
+| `calorie_tracker.log_weight` | `weight`, `unit` (optional: `kg`/`lb`, defaults to the configured display unit) | Manually log a weight measurement. |
 | `calorie_tracker.log_body_fat` | `body_fat_pct` | Manually log body fat (1–60%). |
 | `calorie_tracker.reset_daily` | — | Manually reset today's exercise totals. |
 
@@ -138,6 +143,9 @@ budget = TDEE + goal_offset (−500 / 0 / +300)
 - If no reading arrives within the stale threshold (default 7 days), the
   weight sensor sets `weight_data_stale: true` and a persistent notification
   is created. The last known weight continues to be used.
+- The mapped body fat entity may report a percentage (`%`) **or** a fat mass
+  (kg/lb): fat mass is converted with `body_fat_pct = fat_mass / weight × 100`
+  and re-derived whenever a new weight arrives.
 - Body fat readings outside 1–60% are rejected as glitches.
 - Optional 7-day rolling-average smoothing reduces day-to-day hydration noise;
   the raw reading is kept as a `raw_weight` attribute.

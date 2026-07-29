@@ -83,6 +83,24 @@ def met_gross_kcal(met_value: float, weight_kg: float, duration_minutes: float) 
     return max(0.0, met_value * weight_kg * (duration_minutes / 60))
 
 
+def is_mass_unit(unit: str | None) -> bool:
+    """True when the unit denotes a mass (kg/lb/stones) rather than a percent.
+
+    Used to detect smart scales that report fat *mass* instead of body fat %.
+    """
+    if unit is None:
+        return False
+    normalized = unit.strip().lower().rstrip(".")
+    return normalized in _LB_UNITS | _STONE_UNITS | _KG_UNITS
+
+
+def fat_mass_to_percent(fat_mass_kg: float, weight_kg: float) -> float | None:
+    """Convert an absolute fat mass reading to a body fat percentage."""
+    if weight_kg <= 0:
+        return None
+    return (fat_mass_kg / weight_kg) * 100
+
+
 def convert_weight_to_kg(value: float, unit: str | None) -> float:
     """Convert a weight reading to kg based on its unit of measurement.
 

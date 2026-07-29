@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from homeassistant.components.sensor import (
+    SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
     SensorStateClass,
@@ -18,7 +19,7 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN
+from .const import DISPLAY_UNIT_LB, DOMAIN
 from .coordinator import CalorieTrackerCoordinator
 
 UNIT_KCAL = "kcal"
@@ -155,6 +156,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         key="weight",
         translation_key="weight",
         native_unit_of_measurement="kg",
+        device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:scale-bathroom",
         value_fn=lambda c: _round(c.effective_weight_kg),
@@ -167,11 +169,13 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:percent",
         value_fn=lambda c: _round(c.body_fat_pct),
+        attributes_fn=lambda c: {"fat_mass_kg": _round(c.fat_mass_kg)},
     ),
     CalorieTrackerSensorDescription(
         key="fat_free_mass",
         translation_key="fat_free_mass",
         native_unit_of_measurement="kg",
+        device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:arm-flex",
         value_fn=lambda c: _round(c.fat_free_mass_kg),
@@ -180,6 +184,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         key="muscle_mass",
         translation_key="muscle_mass",
         native_unit_of_measurement="kg",
+        device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:weight-lifter",
         value_fn=lambda c: _round(c.muscle_mass_kg),
@@ -196,6 +201,7 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         key="weight_trend",
         translation_key="weight_trend",
         native_unit_of_measurement="kg",
+        device_class=SensorDeviceClass.WEIGHT,
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:chart-line",
         value_fn=lambda c: _round(c.weight_trend_kg),
@@ -230,6 +236,13 @@ class CalorieTrackerSensor(SensorEntity):
     ) -> None:
         self.coordinator = coordinator
         self.entity_description = description
+        # Mass sensors stay kg natively (keeps long-term statistics stable);
+        # HA converts the displayed state when the user prefers pounds.
+        if (
+            description.device_class is SensorDeviceClass.WEIGHT
+            and coordinator.display_unit == DISPLAY_UNIT_LB
+        ):
+            self._attr_suggested_unit_of_measurement = DISPLAY_UNIT_LB
         self._attr_unique_id = f"{coordinator.entry.entry_id}_{description.key}"
         self.entity_id = f"sensor.{DOMAIN}_{description.key}"
         self._attr_device_info = DeviceInfo(

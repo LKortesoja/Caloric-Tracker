@@ -14,9 +14,12 @@ from .const import (
     ATTR_CALORIES,
     ATTR_DURATION_MINUTES,
     ATTR_FACTOR,
-    ATTR_WEIGHT_KG,
+    ATTR_WEIGHT,
+    ATTR_WEIGHT_UNIT,
     CORRECTION_FACTOR_MAX,
     CORRECTION_FACTOR_MIN,
+    DISPLAY_UNIT_KG,
+    DISPLAY_UNIT_LB,
     DOMAIN,
     SERVICE_LOG_BODY_FAT,
     SERVICE_LOG_EXERCISE,
@@ -49,9 +52,10 @@ SET_CORRECTION_FACTOR_SCHEMA = vol.Schema(
 
 LOG_WEIGHT_SCHEMA = vol.Schema(
     {
-        vol.Required(ATTR_WEIGHT_KG): vol.All(
-            vol.Coerce(float), vol.Range(min=1, max=500)
+        vol.Required(ATTR_WEIGHT): vol.All(
+            vol.Coerce(float), vol.Range(min=1, max=1200)
         ),
+        vol.Optional(ATTR_WEIGHT_UNIT): vol.In([DISPLAY_UNIT_KG, DISPLAY_UNIT_LB]),
     }
 )
 
@@ -126,7 +130,9 @@ def _register_services(hass: HomeAssistant) -> None:
         _get_coordinator(hass).set_correction_factor(call.data[ATTR_FACTOR])
 
     async def handle_log_weight(call: ServiceCall) -> None:
-        _get_coordinator(hass).log_weight(call.data[ATTR_WEIGHT_KG])
+        _get_coordinator(hass).log_weight(
+            call.data[ATTR_WEIGHT], call.data.get(ATTR_WEIGHT_UNIT)
+        )
 
     async def handle_log_body_fat(call: ServiceCall) -> None:
         try:

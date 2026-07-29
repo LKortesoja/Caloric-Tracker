@@ -5,13 +5,16 @@
         "title": "User profile",
         "description": "Basic profile used for the metabolic equations. Leave weight empty if you will connect a smart scale in the next step.",
         "data": {
-          "weight_kg": "Weight (kg)",
+          "display_unit": "Weight unit",
+          "weight_kg": "Weight",
           "height_cm": "Height (cm)",
           "date_of_birth": "Date of birth",
           "sex": "Sex",
           "body_fat_percentage": "Body fat % (optional)"
         },
         "data_description": {
+          "display_unit": "Unit used for entering and displaying weight. Everything is stored internally in kg.",
+          "weight_kg": "Entered in the weight unit selected above.",
           "body_fat_percentage": "Enable this if you have a smart scale that reports body composition — it unlocks the Cunningham equation."
         }
       },
@@ -21,7 +24,7 @@
         "data": {
           "smart_scale_enabled": "Enable smart scale integration",
           "weight_entity": "Weight entity",
-          "body_fat_entity": "Body fat % entity (optional)",
+          "body_fat_entity": "Body fat entity (% or fat mass, optional)",
           "muscle_mass_entity": "Muscle mass entity (optional)",
           "bone_mass_entity": "Bone mass entity (optional)",
           "water_pct_entity": "Water % entity (optional)",
@@ -30,6 +33,7 @@
           "scale_stale_threshold_days": "Stale data threshold (days)"
         },
         "data_description": {
+          "body_fat_entity": "Accepts either a percentage sensor (%) or a fat mass sensor (kg/lb) — many scales such as Withings report fat mass. The unit of measurement is detected automatically.",
           "scale_stale_threshold_days": "Alert if the scale has not reported in this many days."
         }
       },
@@ -88,6 +92,7 @@
       "init": {
         "title": "Calorie Tracker options",
         "data": {
+          "display_unit": "Weight unit",
           "exercise_correction_factor": "Exercise correction factor",
           "goal": "Primary goal",
           "protein_multiplier": "Protein multiplier",
@@ -100,6 +105,12 @@
     }
   },
   "selector": {
+    "display_unit": {
+      "options": {
+        "kg": "Kilograms (kg)",
+        "lb": "Pounds (lb)"
+      }
+    },
     "sex": {
       "options": {
         "male": "Male",

@@ -172,6 +172,24 @@ def test_unit_case_insensitive():
     assert calc.convert_weight_to_kg(180, "LBS") == pytest.approx(81.64656)
 
 
+def test_is_mass_unit():
+    assert calc.is_mass_unit("kg") is True
+    assert calc.is_mass_unit("lb") is True
+    assert calc.is_mass_unit("lbs") is True
+    assert calc.is_mass_unit("st") is True
+    assert calc.is_mass_unit("%") is False
+    assert calc.is_mass_unit(None) is False
+
+
+def test_fat_mass_to_percent():
+    assert calc.fat_mass_to_percent(16, 80) == pytest.approx(20.0)
+    assert calc.fat_mass_to_percent(20, 100) == pytest.approx(20.0)
+
+
+def test_fat_mass_to_percent_invalid_weight():
+    assert calc.fat_mass_to_percent(16, 0) is None
+
+
 # ---------------------------------------------------------------------------
 # Weight smoothing
 # ---------------------------------------------------------------------------
