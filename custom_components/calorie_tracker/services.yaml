@@ -1,0 +1,100 @@
+log_exercise:
+  name: Log exercise
+  description: >-
+    Manually log an exercise session. If no calorie value is provided, net
+    calories are estimated from the activity's MET value (net METs = MET - 1)
+    and your current weight.
+  fields:
+    activity_type:
+      name: Activity type
+      description: >-
+        Activity name from the built-in MET table (e.g. walking_brisk_4mph,
+        running_6mph, yoga, hiit_circuit), or any label when providing an
+        explicit calorie value.
+      required: true
+      example: cycling_moderate_12mph
+      selector:
+        text:
+    duration_minutes:
+      name: Duration
+      description: Duration of the session in minutes.
+      required: true
+      example: 45
+      selector:
+        number:
+          min: 0
+          max: 600
+          unit_of_measurement: min
+          mode: box
+    calories:
+      name: Calories (override)
+      description: >-
+        Optional gross calorie value from a device. When provided, the resting
+        component for the duration is subtracted to get net calories instead
+        of using the MET table.
+      required: false
+      example: 350
+      selector:
+        number:
+          min: 0
+          max: 5000
+          unit_of_measurement: kcal
+          mode: box
+
+set_correction_factor:
+  name: Set correction factor
+  description: >-
+    Update the exercise correction factor applied to device-reported calories.
+    Consumer fitness devices may overestimate burn by 15-30%.
+  fields:
+    factor:
+      name: Factor
+      description: Correction factor between 0.50 and 1.00.
+      required: true
+      example: 0.85
+      selector:
+        number:
+          min: 0.5
+          max: 1.0
+          step: 0.01
+          mode: slider
+
+log_weight:
+  name: Log weight
+  description: Manually log a weight measurement (when no smart scale is connected).
+  fields:
+    weight_kg:
+      name: Weight
+      description: Weight in kilograms.
+      required: true
+      example: 82.5
+      selector:
+        number:
+          min: 20
+          max: 500
+          step: 0.1
+          unit_of_measurement: kg
+          mode: box
+
+log_body_fat:
+  name: Log body fat
+  description: Manually log a body fat percentage.
+  fields:
+    body_fat_pct:
+      name: Body fat
+      description: Body fat percentage (1-60).
+      required: true
+      example: 22.5
+      selector:
+        number:
+          min: 1
+          max: 60
+          step: 0.1
+          unit_of_measurement: "%"
+          mode: box
+
+reset_daily:
+  name: Reset daily totals
+  description: >-
+    Manually reset today's exercise sessions and daily totals. Weight and body
+    composition data are kept.

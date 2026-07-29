@@ -1,0 +1,157 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "User profile",
+        "description": "Basic profile used for the metabolic equations. Leave weight empty if you will connect a smart scale in the next step.",
+        "data": {
+          "weight_kg": "Weight (kg)",
+          "height_cm": "Height (cm)",
+          "date_of_birth": "Date of birth",
+          "sex": "Sex",
+          "body_fat_percentage": "Body fat % (optional)"
+        },
+        "data_description": {
+          "body_fat_percentage": "Enable this if you have a smart scale that reports body composition — it unlocks the Cunningham equation."
+        }
+      },
+      "smart_scale": {
+        "title": "Smart scale",
+        "description": "Connect your smart scale to automatically update weight and body composition. Supports Withings, Xiaomi, Garmin, Fitbit, Renpho, Eufy, and any scale that exposes sensors in Home Assistant.",
+        "data": {
+          "smart_scale_enabled": "Enable smart scale integration",
+          "weight_entity": "Weight entity",
+          "body_fat_entity": "Body fat % entity (optional)",
+          "muscle_mass_entity": "Muscle mass entity (optional)",
+          "bone_mass_entity": "Bone mass entity (optional)",
+          "water_pct_entity": "Water % entity (optional)",
+          "bmi_entity": "BMI entity (optional)",
+          "weight_smoothing": "Weight smoothing",
+          "scale_stale_threshold_days": "Stale data threshold (days)"
+        },
+        "data_description": {
+          "scale_stale_threshold_days": "Alert if the scale has not reported in this many days."
+        }
+      },
+      "metabolic": {
+        "title": "Metabolic settings",
+        "description": "Mifflin-St Jeor is recommended for most people. Cunningham requires body fat data (manual or from a connected smart scale).",
+        "data": {
+          "rmr_equation": "RMR equation",
+          "baseline_activity_level": "Baseline activity level (outside tracked exercise)"
+        }
+      },
+      "goals": {
+        "title": "Goals and macro targets",
+        "data": {
+          "goal": "Primary goal",
+          "protein_multiplier": "Protein multiplier"
+        },
+        "data_description": {
+          "protein_multiplier": "Grams of protein per kg of body weight."
+        }
+      },
+      "exercise": {
+        "title": "Exercise sources",
+        "description": "Consumer fitness devices may overestimate calorie burn by 15-30%. Set the correction factor to 0.80-0.85 for a conservative estimate, or leave at 1.00 to use reported values as-is.",
+        "data": {
+          "peloton_enabled": "Enable Peloton integration",
+          "peloton_workout_entity": "Peloton workout status entity",
+          "peloton_calories_entity": "Peloton calories entity",
+          "peloton_duration_entity": "Peloton duration entity",
+          "peloton_heart_rate_entity": "Peloton heart rate entity (optional)",
+          "exercise_correction_factor": "Exercise correction factor"
+        }
+      },
+      "optional": {
+        "title": "Optional settings",
+        "data": {
+          "tef_percentage": "Thermic Effect of Food (%)"
+        },
+        "data_description": {
+          "tef_percentage": "TEF is already included in the baseline activity multiplier; this value is stored for reference and displayed as a TDEE attribute."
+        }
+      }
+    },
+    "error": {
+      "weight_entity_required": "A weight entity is required when the smart scale is enabled.",
+      "weight_required": "Enter a weight in the profile step or enable the smart scale.",
+      "cunningham_requires_body_fat": "The Cunningham equation requires a body fat percentage or a mapped body fat entity.",
+      "peloton_calories_required": "A Peloton calories entity is required when Peloton is enabled."
+    },
+    "abort": {
+      "single_instance_allowed": "Only a single Calorie Tracker instance is supported."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Calorie Tracker options",
+        "data": {
+          "exercise_correction_factor": "Exercise correction factor",
+          "goal": "Primary goal",
+          "protein_multiplier": "Protein multiplier",
+          "baseline_activity_level": "Baseline activity level",
+          "weight_smoothing": "Weight smoothing",
+          "scale_stale_threshold_days": "Stale data threshold (days)",
+          "tef_percentage": "Thermic Effect of Food (%)"
+        }
+      }
+    }
+  },
+  "selector": {
+    "sex": {
+      "options": {
+        "male": "Male",
+        "female": "Female"
+      }
+    },
+    "rmr_equation": {
+      "options": {
+        "mifflin_st_jeor": "Mifflin-St Jeor (recommended)",
+        "harris_benedict": "Harris-Benedict",
+        "cunningham": "Cunningham (requires body fat data)"
+      }
+    },
+    "activity_level": {
+      "options": {
+        "sedentary": "Sedentary — desk job, minimal daily movement",
+        "lightly_active": "Lightly active — some walking, light daily tasks",
+        "moderately_active": "Moderately active — on feet regularly, active job",
+        "very_active": "Very active — physically demanding job"
+      }
+    },
+    "goal": {
+      "options": {
+        "weight_loss": "Weight loss (-500 kcal)",
+        "maintenance": "Maintenance (0 kcal)",
+        "muscle_gain": "Muscle gain (+300 kcal)"
+      }
+    },
+    "weight_smoothing": {
+      "options": {
+        "none": "None",
+        "rolling_average": "7-day rolling average"
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "rmr": { "name": "RMR" },
+      "base_daily": { "name": "Base daily expenditure" },
+      "exercise_gross": { "name": "Exercise gross" },
+      "exercise_net": { "name": "Exercise net" },
+      "tdee": { "name": "TDEE" },
+      "exercise_count": { "name": "Exercise sessions" },
+      "correction_factor": { "name": "Correction factor" },
+      "daily_budget": { "name": "Daily budget" },
+      "protein_target": { "name": "Protein target" },
+      "weight": { "name": "Weight" },
+      "body_fat": { "name": "Body fat" },
+      "fat_free_mass": { "name": "Fat-free mass" },
+      "muscle_mass": { "name": "Muscle mass" },
+      "bmi": { "name": "BMI" },
+      "weight_trend": { "name": "Weight trend" }
+    }
+  }
+}
