@@ -15,6 +15,7 @@
         "data_description": {
           "display_unit": "Unit used for entering and displaying weight. Everything is stored internally in kg.",
           "weight_kg": "Entered in the weight unit selected above.",
+          "date_of_birth": "Type it directly — e.g. 1988-05-14 or 05/14/1988.",
           "body_fat_percentage": "Enable this if you have a smart scale that reports body composition — it unlocks the Cunningham equation."
         }
       },
@@ -25,46 +26,64 @@
           "smart_scale_enabled": "Enable smart scale integration",
           "weight_entity": "Weight entity",
           "body_fat_entity": "Body fat entity (% or fat mass, optional)",
-          "muscle_mass_entity": "Muscle mass entity (optional)",
-          "bone_mass_entity": "Bone mass entity (optional)",
-          "water_pct_entity": "Water % entity (optional)",
-          "bmi_entity": "BMI entity (optional)",
           "weight_smoothing": "Weight smoothing",
           "scale_stale_threshold_days": "Stale data threshold (days)"
         },
         "data_description": {
           "body_fat_entity": "Accepts either a percentage sensor (%) or a fat mass sensor (kg/lb) — many scales such as Withings report fat mass. The unit of measurement is detected automatically.",
           "scale_stale_threshold_days": "Alert if the scale has not reported in this many days."
+        },
+        "sections": {
+          "extra_entities": {
+            "name": "Additional body-composition sensors (optional)",
+            "data": {
+              "muscle_mass_entity": "Muscle mass entity",
+              "bone_mass_entity": "Bone mass entity",
+              "water_pct_entity": "Water % entity",
+              "bmi_entity": "BMI entity"
+            }
+          }
         }
       },
       "metabolic": {
         "title": "Metabolic settings",
-        "description": "Mifflin-St Jeor is recommended for most people. Cunningham requires body fat data (manual or from a connected smart scale).",
+        "description": "How your resting burn (RMR) is estimated:\n\n**Mifflin-St Jeor (recommended)** — the most validated equation across BMI ranges; endorsed by the Academy of Nutrition and Dietetics. Best default for weight loss.\n\n**Harris-Benedict** — the 1919 classic with the lowest mean bias in cross-validation studies; may have slightly better individual precision for adults over 65.\n\n**Cunningham** — computed from fat-free mass (22 × FFM + 500), so it tracks your actual body composition as it changes; often more accurate across activity levels, but requires body-fat data from your scale, which varies with hydration and time of day.\n\nAll three carry ±10–25% individual variability — they are estimates, not measurements.",
         "data": {
           "rmr_equation": "RMR equation",
           "baseline_activity_level": "Baseline activity level (outside tracked exercise)"
+        },
+        "data_description": {
+          "baseline_activity_level": "Only your non-exercise day (job, chores, walking). Tracked workouts are added separately — do not count them here."
         }
       },
       "goals": {
-        "title": "Goals and macro targets",
+        "title": "Goals",
+        "description": "Weight loss uses a -500 kcal budget offset, muscle gain +300. The training goals below have sensible defaults — expand only if you want to tune the workout recommendation engine.",
         "data": {
           "goal": "Primary goal",
-          "protein_multiplier": "Protein multiplier",
-          "budget_mode": "Daily budget based on",
-          "monthly_cycling_distance_goal": "Monthly cycling distance goal",
-          "weekly_aerobic_minutes_goal": "Weekly aerobic minutes goal",
-          "monthly_strength_goal": "Monthly strength sessions goal",
-          "weekly_rest_days_target": "Weekly rest days target",
-          "polarization_threshold_pct": "High-intensity threshold"
+          "budget_mode": "Daily budget based on"
         },
         "data_description": {
-          "protein_multiplier": "Grams of protein per kg of body weight.",
-          "budget_mode": "Today's TDEE makes the budget rise on workout days and fall on rest days. A rolling average spreads your recent exercise evenly, giving a steadier daily target.",
-          "monthly_cycling_distance_goal": "Miles or km per calendar month, matching your distance sensor's unit. Recreational baseline is ~100 miles/month. Trained athletes may target 300-600+.",
-          "weekly_aerobic_minutes_goal": "ACSM recommends at least 150 minutes of moderate aerobic activity per week.",
-          "monthly_strength_goal": "Number of strength sessions per calendar month. ACSM recommends 2-3 per week.",
-          "weekly_rest_days_target": "Passive rest days per week (1-3). Caps consecutive training days.",
-          "polarization_threshold_pct": "Maximum share of high-intensity cardio sessions (last 14 days) before the engine nudges you toward low-intensity Zone 2 volume."
+          "budget_mode": "Today's TDEE makes the budget rise on workout days and fall on rest days. A rolling average spreads your recent exercise evenly, giving a steadier daily target."
+        },
+        "sections": {
+          "training_goals": {
+            "name": "Training goals (defaults are fine)",
+            "data": {
+              "monthly_cycling_distance_goal": "Monthly cycling distance goal",
+              "weekly_aerobic_minutes_goal": "Weekly aerobic minutes goal",
+              "monthly_strength_goal": "Monthly strength sessions goal",
+              "weekly_rest_days_target": "Weekly rest days target",
+              "polarization_threshold_pct": "High-intensity threshold"
+            },
+            "data_description": {
+              "monthly_cycling_distance_goal": "Miles or km per calendar month, matching your distance sensor's unit. Recreational baseline is ~100 miles/month. Trained athletes may target 300-600+.",
+              "weekly_aerobic_minutes_goal": "ACSM recommends at least 150 minutes of moderate aerobic activity per week.",
+              "monthly_strength_goal": "Number of strength sessions per calendar month. ACSM recommends 2-3 per week.",
+              "weekly_rest_days_target": "Passive rest days per week (1-3). Caps consecutive training days.",
+              "polarization_threshold_pct": "Maximum share of high-intensity cardio sessions (last 14 days) before the engine nudges you toward low-intensity Zone 2 volume."
+            }
+          }
         }
       },
       "exercise": {
@@ -110,27 +129,36 @@
       },
       "nutrition": {
         "title": "Nutrition goals",
-        "description": "All targets are yours — the integration reports status against them and never prescribes an intake.",
+        "description": "All targets are yours — the integration reports status against them and never prescribes an intake. The advanced section can stay collapsed; its defaults follow the guidelines.",
         "data": {
           "weight_goal_mode": "Weight goal",
           "target_daily_deficit_kcal": "Target daily deficit",
           "minimum_intake_floor_kcal": "Minimum intake floor (blank = auto by sex)",
           "protein_target_basis": "Protein target basis",
-          "protein_target_g_per_kg": "Protein target (g per kg body weight)",
-          "protein_target_g_per_kg_ffm": "Protein target (g per kg fat-free mass)",
-          "protein_target_absolute_g": "Protein target (absolute grams)",
-          "per_meal_protein_target_g": "Per-meal protein target",
-          "tef_calculation_mode": "TEF calculation mode",
-          "protein_underreporting_correction_pct": "Protein underreporting correction",
-          "deficit_cutoff_hour": "End-of-day cutoff hour",
-          "adaptive_thermogenesis_enabled": "Adaptive thermogenesis correction"
+          "protein_target_g_per_kg": "Protein target (g per kg body weight)"
         },
         "data_description": {
           "target_daily_deficit_kcal": "Guidelines recommend a 500-750 kcal/day deficit for weight reduction. Larger deficits reduce the protective effect of dietary protein on lean mass.",
-          "minimum_intake_floor_kcal": "Guideline-referenced minimums are 1200-1500 kcal/day for women and 1500-1800 kcal/day for men. Intake below this floor should be medically supervised.",
-          "protein_underreporting_correction_pct": "Optional. App-based food logs have been shown to underestimate protein relative to research-grade dietary analysis. Leave at 0 unless you have a reason to correct; the raw value is always kept.",
-          "deficit_cutoff_hour": "Deficit classification is suppressed before this local hour so a half-logged day is not reported as a huge deficit.",
-          "adaptive_thermogenesis_enabled": "First-order approximation only: reduces TDEE by up to 15% as weight is lost from your baseline. Not individually validated."
+          "minimum_intake_floor_kcal": "Guideline-referenced minimums are 1200-1500 kcal/day for women and 1500-1800 kcal/day for men. Intake below this floor should be medically supervised."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced nutrition settings (defaults are fine)",
+            "data": {
+              "protein_target_g_per_kg_ffm": "Protein target (g per kg fat-free mass)",
+              "protein_target_absolute_g": "Protein target (absolute grams)",
+              "per_meal_protein_target_g": "Per-meal protein target",
+              "tef_calculation_mode": "TEF calculation mode",
+              "protein_underreporting_correction_pct": "Protein underreporting correction",
+              "deficit_cutoff_hour": "End-of-day cutoff hour",
+              "adaptive_thermogenesis_enabled": "Adaptive thermogenesis correction"
+            },
+            "data_description": {
+              "protein_underreporting_correction_pct": "Optional. App-based food logs have been shown to underestimate protein relative to research-grade dietary analysis. Leave at 0 unless you have a reason to correct; the raw value is always kept.",
+              "deficit_cutoff_hour": "Deficit classification is suppressed before this local hour so a half-logged day is not reported as a huge deficit.",
+              "adaptive_thermogenesis_enabled": "First-order approximation only: reduces TDEE by up to 15% as weight is lost from your baseline. Not individually validated."
+            }
+          }
         }
       },
       "reauth_confirm": {
@@ -147,6 +175,7 @@
       "ssl_error": "TLS certificate verification failed. Fix the certificate or disable SSL verification.",
       "unexpected_schema": "Connected, but the response did not look like a SparkyFitness API. Check the base URL.",
       "sparkyfitness_credentials_required": "Base URL and API key are required when SparkyFitness sync is enabled.",
+      "invalid_date_of_birth": "Could not read that date. Use YYYY-MM-DD (e.g. 1988-05-14) or MM/DD/YYYY.",
       "weight_entity_required": "A weight entity is required when the smart scale is enabled.",
       "weight_required": "Enter a weight in the profile step or enable the smart scale.",
       "cunningham_requires_body_fat": "The Cunningham equation requires a body fat percentage or a mapped body fat entity.",
@@ -165,7 +194,6 @@
           "exercise_correction_factor": "Exercise correction factor",
           "goal": "Primary goal",
           "budget_mode": "Daily budget based on",
-          "protein_multiplier": "Protein multiplier",
           "monthly_cycling_distance_goal": "Monthly cycling distance goal",
           "weekly_aerobic_minutes_goal": "Weekly aerobic minutes goal",
           "monthly_strength_goal": "Monthly strength sessions goal",

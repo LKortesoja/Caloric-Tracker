@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import date, datetime
 from typing import Any
 
 import voluptuous as vol
@@ -12,6 +13,7 @@ from homeassistant.config_entries import (
     ConfigFlowResult,
     OptionsFlow,
 )
+from homeassistant.data_entry_flow import section
 from homeassistant.core import callback
 from homeassistant.helpers import selector
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
@@ -88,7 +90,6 @@ from .const import (
     CONF_PELOTON_ENABLED,
     CONF_PELOTON_HR_ENTITY,
     CONF_PELOTON_WORKOUT_ENTITY,
-    CONF_PROTEIN_MULTIPLIER,
     CONF_RMR_EQUATION,
     CONF_SCALE_ENABLED,
     CONF_SEX,
@@ -106,7 +107,6 @@ from .const import (
     DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
     DEFAULT_MONTHLY_STRENGTH_GOAL,
     DEFAULT_POLARIZATION_THRESHOLD_PCT,
-    DEFAULT_PROTEIN_MULTIPLIER,
     DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
     DEFAULT_WEEKLY_REST_DAYS_TARGET,
     DEFAULT_RMR_EQUATION,
@@ -132,6 +132,21 @@ _LOGGER = logging.getLogger(__name__)
 
 def _sensor_selector() -> selector.EntitySelector:
     return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+
+
+def _parse_date_of_birth(raw: str) -> date | None:
+    """Parse a typed date of birth; accepts ISO and US formats."""
+    raw = raw.strip()
+    for fmt in ("%Y-%m-%d", "%m/%d/%Y", "%m-%d-%Y", "%d.%m.%Y"):
+        try:
+            parsed = datetime.strptime(raw, fmt).date()
+        except ValueError:
+            continue
+        today = date.today()
+        if parsed >= today or today.year - parsed.year > 120:
+            return None
+        return parsed
+    return None
 
 
 def _select(options: list[str], translation_key: str) -> selector.SelectSelector:
@@ -162,19 +177,24 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
 
         errors: dict[str, str] = {}
         if user_input is not None:
-            # Weight is entered in the chosen display unit; store canonical kg.
-            if (
-                user_input.get(CONF_DISPLAY_UNIT) == DISPLAY_UNIT_LB
-                and user_input.get(CONF_WEIGHT_KG) is not None
-            ):
-                user_input[CONF_WEIGHT_KG] = round(
-                    calc.convert_weight_to_kg(
-                        user_input[CONF_WEIGHT_KG], DISPLAY_UNIT_LB
-                    ),
-                    2,
-                )
-            self._data.update(user_input)
-            return await self.async_step_smart_scale()
+            dob = _parse_date_of_birth(user_input[CONF_DATE_OF_BIRTH])
+            if dob is None:
+                errors[CONF_DATE_OF_BIRTH] = "invalid_date_of_birth"
+            else:
+                user_input[CONF_DATE_OF_BIRTH] = dob.isoformat()
+                # Weight is entered in the chosen display unit; store kg.
+                if (
+                    user_input.get(CONF_DISPLAY_UNIT) == DISPLAY_UNIT_LB
+                    and user_input.get(CONF_WEIGHT_KG) is not None
+                ):
+                    user_input[CONF_WEIGHT_KG] = round(
+                        calc.convert_weight_to_kg(
+                            user_input[CONF_WEIGHT_KG], DISPLAY_UNIT_LB
+                        ),
+                        2,
+                    )
+                self._data.update(user_input)
+                return await self.async_step_smart_scale()
 
         schema = vol.Schema(
             {
@@ -193,7 +213,7 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required(CONF_DATE_OF_BIRTH): selector.DateSelector(),
+                vol.Required(CONF_DATE_OF_BIRTH): selector.TextSelector(),
                 vol.Required(CONF_SEX): _select([SEX_MALE, SEX_FEMALE], "sex"),
                 vol.Optional(CONF_BODY_FAT_PCT): selector.NumberSelector(
                     selector.NumberSelectorConfig(
@@ -218,6 +238,7 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
             elif not enabled and self._data.get(CONF_WEIGHT_KG) is None:
                 errors["base"] = "weight_required"
             else:
+                self._data.update(user_input.pop("extra_entities", {}))
                 self._data.update(user_input)
                 return await self.async_step_metabolic()
 
@@ -226,10 +247,17 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 vol.Required(CONF_SCALE_ENABLED, default=False): selector.BooleanSelector(),
                 vol.Optional(CONF_WEIGHT_ENTITY): _sensor_selector(),
                 vol.Optional(CONF_BODY_FAT_ENTITY): _sensor_selector(),
-                vol.Optional(CONF_MUSCLE_MASS_ENTITY): _sensor_selector(),
-                vol.Optional(CONF_BONE_MASS_ENTITY): _sensor_selector(),
-                vol.Optional(CONF_WATER_PCT_ENTITY): _sensor_selector(),
-                vol.Optional(CONF_BMI_ENTITY): _sensor_selector(),
+                vol.Required("extra_entities"): section(
+                    vol.Schema(
+                        {
+                            vol.Optional(CONF_MUSCLE_MASS_ENTITY): _sensor_selector(),
+                            vol.Optional(CONF_BONE_MASS_ENTITY): _sensor_selector(),
+                            vol.Optional(CONF_WATER_PCT_ENTITY): _sensor_selector(),
+                            vol.Optional(CONF_BMI_ENTITY): _sensor_selector(),
+                        }
+                    ),
+                    {"collapsed": True},
+                ),
                 vol.Required(
                     CONF_WEIGHT_SMOOTHING, default=DEFAULT_SMOOTHING
                 ): _select([SMOOTHING_NONE, SMOOTHING_ROLLING], "weight_smoothing"),
@@ -290,6 +318,7 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
+            self._data.update(user_input.pop("training_goals", {}))
             self._data.update(user_input)
             return await self.async_step_exercise()
 
@@ -299,60 +328,63 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                     [GOAL_WEIGHT_LOSS, GOAL_MAINTENANCE, GOAL_MUSCLE_GAIN], "goal"
                 ),
                 vol.Required(
-                    CONF_PROTEIN_MULTIPLIER, default=DEFAULT_PROTEIN_MULTIPLIER
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.5, max=3.0, step=0.1, unit_of_measurement="g/kg",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
                     CONF_BUDGET_MODE, default=DEFAULT_BUDGET_MODE
                 ): _select(BUDGET_MODES, "budget_mode"),
-                vol.Required(
-                    CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
-                    default=DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=2000, step=1,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_WEEKLY_AEROBIC_MINUTES_GOAL,
-                    default=DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=2000, step=5, unit_of_measurement="min",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_MONTHLY_STRENGTH_GOAL,
-                    default=DEFAULT_MONTHLY_STRENGTH_GOAL,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=31, step=1,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_WEEKLY_REST_DAYS_TARGET,
-                    default=DEFAULT_WEEKLY_REST_DAYS_TARGET,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=1, max=3, step=1,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_POLARIZATION_THRESHOLD_PCT,
-                    default=DEFAULT_POLARIZATION_THRESHOLD_PCT,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=20, max=35, step=1, unit_of_measurement="%",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    )
+                # Defaults are sensible for most people; expand only if you
+                # want to tune the workout recommendation engine.
+                vol.Required("training_goals"): section(
+                    vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_MONTHLY_CYCLING_DISTANCE_GOAL,
+                                default=DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0, max=2000, step=1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_WEEKLY_AEROBIC_MINUTES_GOAL,
+                                default=DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0, max=2000, step=5,
+                                    unit_of_measurement="min",
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_MONTHLY_STRENGTH_GOAL,
+                                default=DEFAULT_MONTHLY_STRENGTH_GOAL,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0, max=31, step=1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_WEEKLY_REST_DAYS_TARGET,
+                                default=DEFAULT_WEEKLY_REST_DAYS_TARGET,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=1, max=3, step=1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_POLARIZATION_THRESHOLD_PCT,
+                                default=DEFAULT_POLARIZATION_THRESHOLD_PCT,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=20, max=35, step=1,
+                                    unit_of_measurement="%",
+                                    mode=selector.NumberSelectorMode.SLIDER,
+                                )
+                            ),
+                        }
+                    ),
+                    {"collapsed": True},
                 ),
             }
         )
@@ -517,6 +549,7 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
+            self._data.update(user_input.pop("advanced", {}))
             self._data.update(user_input)
             return self.async_create_entry(title="Calorie Tracker", data=self._data)
 
@@ -551,56 +584,68 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
-                vol.Required(
-                    CONF_PROTEIN_G_PER_KG_FFM,
-                    default=DEFAULT_PROTEIN_G_PER_KG_FFM,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=1.0, max=3.0, step=0.1,
-                        unit_of_measurement="g/kg FFM",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
+                vol.Required("advanced"): section(
+                    vol.Schema(
+                        {
+                            vol.Required(
+                                CONF_PROTEIN_G_PER_KG_FFM,
+                                default=DEFAULT_PROTEIN_G_PER_KG_FFM,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=1.0, max=3.0, step=0.1,
+                                    unit_of_measurement="g/kg FFM",
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_PROTEIN_ABSOLUTE_G,
+                                default=DEFAULT_PROTEIN_ABSOLUTE_G,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=80, max=120, step=5,
+                                    unit_of_measurement="g",
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_PER_MEAL_PROTEIN_G,
+                                default=DEFAULT_PER_MEAL_PROTEIN_G,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=25, max=30, step=1,
+                                    unit_of_measurement="g",
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_TEF_MODE, default=TEF_MODE_MACRO
+                            ): _select(TEF_MODES, "tef_mode"),
+                            vol.Required(
+                                CONF_PROTEIN_CORRECTION_PCT,
+                                default=DEFAULT_PROTEIN_CORRECTION_PCT,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=0, max=15, step=1,
+                                    unit_of_measurement="%",
+                                    mode=selector.NumberSelectorMode.SLIDER,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_DEFICIT_CUTOFF_HOUR,
+                                default=DEFAULT_DEFICIT_CUTOFF_HOUR,
+                            ): selector.NumberSelector(
+                                selector.NumberSelectorConfig(
+                                    min=17, max=23, step=1,
+                                    mode=selector.NumberSelectorMode.BOX,
+                                )
+                            ),
+                            vol.Required(
+                                CONF_ADAPTIVE_THERMO, default=False
+                            ): selector.BooleanSelector(),
+                        }
+                    ),
+                    {"collapsed": True},
                 ),
-                vol.Required(
-                    CONF_PROTEIN_ABSOLUTE_G, default=DEFAULT_PROTEIN_ABSOLUTE_G
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=80, max=120, step=5, unit_of_measurement="g",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_PER_MEAL_PROTEIN_G, default=DEFAULT_PER_MEAL_PROTEIN_G
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=25, max=30, step=1, unit_of_measurement="g",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_TEF_MODE, default=TEF_MODE_MACRO
-                ): _select(TEF_MODES, "tef_mode"),
-                vol.Required(
-                    CONF_PROTEIN_CORRECTION_PCT,
-                    default=DEFAULT_PROTEIN_CORRECTION_PCT,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=15, step=1, unit_of_measurement="%",
-                        mode=selector.NumberSelectorMode.SLIDER,
-                    )
-                ),
-                vol.Required(
-                    CONF_DEFICIT_CUTOFF_HOUR,
-                    default=DEFAULT_DEFICIT_CUTOFF_HOUR,
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=17, max=23, step=1,
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
-                ),
-                vol.Required(
-                    CONF_ADAPTIVE_THERMO, default=False
-                ): selector.BooleanSelector(),
             }
         )
         return self.async_show_form(step_id="nutrition", data_schema=schema)
@@ -680,15 +725,6 @@ class CalorieTrackerOptionsFlow(OptionsFlow):
                     CONF_GOAL, default=current(CONF_GOAL, DEFAULT_GOAL)
                 ): _select(
                     [GOAL_WEIGHT_LOSS, GOAL_MAINTENANCE, GOAL_MUSCLE_GAIN], "goal"
-                ),
-                vol.Required(
-                    CONF_PROTEIN_MULTIPLIER,
-                    default=current(CONF_PROTEIN_MULTIPLIER, DEFAULT_PROTEIN_MULTIPLIER),
-                ): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0.5, max=3.0, step=0.1, unit_of_measurement="g/kg",
-                        mode=selector.NumberSelectorMode.BOX,
-                    )
                 ),
                 vol.Required(
                     CONF_BUDGET_MODE,
