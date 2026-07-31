@@ -236,6 +236,162 @@ def test_mobility_deficit_appends_stretch():
 
 
 # ---------------------------------------------------------------------------
+# Underfueling tier (nutrition integration)
+# ---------------------------------------------------------------------------
+
+
+def fueled(**overrides) -> TrainingSnapshot:
+    """Snapshot with nutrition data present and no underfueling by default."""
+    defaults = dict(
+        incomplete_logging=False,
+        nutrition_connected=True,
+        rolling_7d_deficit=-400.0,
+        below_floor_days_7d=0,
+        yesterday_load=100.0,
+    )
+    defaults.update(overrides)
+    return make_snapshot(**defaults)
+
+
+def test_underfueling_from_sustained_deficit():
+    rec = evaluate(fueled(rolling_7d_deficit=-1200.0))
+    assert rec.underfueling is True
+    assert rec.primary == "Light Activity Only — Underfueling Detected"
+
+
+def test_underfueling_from_below_floor_days():
+    rec = evaluate(fueled(below_floor_days_7d=3))
+    assert rec.underfueling is True
+    assert rec.primary == "Light Activity Only — Underfueling Detected"
+
+
+def test_underfueling_deficit_boundary():
+    # Strictly below -1000 triggers; exactly -1000 does not.
+    assert evaluate(fueled(rolling_7d_deficit=-1000.0)).underfueling is False
+    assert evaluate(fueled(rolling_7d_deficit=-1000.1)).underfueling is True
+
+
+def test_underfueling_below_floor_boundary():
+    assert evaluate(fueled(below_floor_days_7d=2)).underfueling is False
+    assert evaluate(fueled(below_floor_days_7d=3)).underfueling is True
+
+
+def test_underfueling_suppressed_when_logging_incomplete():
+    """A half-logged week must never be read as starvation."""
+    rec = evaluate(
+        fueled(rolling_7d_deficit=-2000.0, below_floor_days_7d=7,
+               incomplete_logging=True)
+    )
+    assert rec.underfueling is False
+    assert "Underfueling" not in rec.primary
+
+
+def test_underfueling_without_nutrition_data():
+    rec = evaluate(make_snapshot())  # defaults: no intake data at all
+    assert rec.underfueling is False
+
+
+def test_mandatory_rest_outranks_underfueling():
+    rec = evaluate(fueled(rolling_7d_deficit=-2000.0, consecutive_training_days=6))
+    assert rec.underfueling is True  # still reported as a flag
+    assert rec.primary == "Full Passive Rest Day"
+
+
+def test_acwr_danger_outranks_underfueling():
+    loads = [50.0] * 24 + [800.0] * 4
+    rec = evaluate(fueled(rolling_7d_deficit=-2000.0, daily_loads_28d=loads))
+    assert rec.acwr_ratio > 2.0
+    assert rec.primary == "Full Passive Rest Day"
+
+
+def test_acute_fatigue_outranks_underfueling():
+    loads = [100.0] * 27 + [0.0]
+    rec = evaluate(
+        fueled(rolling_7d_deficit=-2000.0, daily_loads_28d=loads,
+               yesterday_load=500.0)
+    )
+    assert "Active Recovery" in rec.primary
+
+
+def test_underfueling_outranks_strength_priority():
+    rec = evaluate(
+        fueled(
+            rolling_7d_deficit=-1500.0,
+            strength_sessions_month=1,
+            cycling_sessions_14d=10,
+            total_sessions_14d=12,
+        )
+    )
+    assert rec.strength_priority_high is True  # condition still met
+    assert rec.primary == "Light Activity Only — Underfueling Detected"
+
+
+def test_underfueling_outranks_polarization():
+    rec = evaluate(
+        fueled(
+            rolling_7d_deficit=-1500.0,
+            high_intensity_cardio_14d=5,
+            cardio_sessions_14d=10,
+        )
+    )
+    assert rec.polarization_high_skew is True
+    assert rec.primary == "Light Activity Only — Underfueling Detected"
+
+
+# ---------------------------------------------------------------------------
+# Secondary nutrition notes
+# ---------------------------------------------------------------------------
+
+
+def test_protein_note_only_on_strength_days():
+    strength = fueled(
+        protein_inadequate=True,
+        strength_sessions_month=1,
+        cycling_sessions_14d=10,
+        total_sessions_14d=12,
+    )
+    rec = evaluate(strength)
+    assert "Strength" in rec.primary
+    assert any("Protein intake is below target" in n for n in rec.nutrition_notes)
+
+    # Same protein deficit on a non-strength day: no resistance-training note.
+    rec = evaluate(fueled(protein_inadequate=True))
+    assert not any("resistance training" in n for n in rec.nutrition_notes)
+
+
+def test_surplus_note_only_against_weight_loss_goal():
+    rec = evaluate(fueled(energy_surplus_kcal=350.0, weight_goal_mode="loss"))
+    assert any("surplus of 350 kcal" in n for n in rec.nutrition_notes)
+
+    rec = evaluate(fueled(energy_surplus_kcal=350.0, weight_goal_mode="gain"))
+    assert not any("surplus" in n for n in rec.nutrition_notes)
+
+
+def test_note_when_nutrition_source_unavailable():
+    rec = evaluate(fueled(nutrition_connected=False))
+    assert any("Nutrition data unavailable" in n for n in rec.nutrition_notes)
+
+
+def test_no_notes_when_everything_is_fine():
+    assert evaluate(fueled()).nutrition_notes == ()
+
+
+def test_engine_never_prescribes_an_intake_amount():
+    """Guidance is status-only: no kcal/gram intake instructions."""
+    snapshots = [
+        fueled(rolling_7d_deficit=-1500.0),
+        fueled(protein_inadequate=True, strength_sessions_month=1,
+               cycling_sessions_14d=10, total_sessions_14d=12),
+        fueled(energy_surplus_kcal=350.0, weight_goal_mode="loss"),
+    ]
+    for snapshot in snapshots:
+        rec = evaluate(snapshot)
+        text = " ".join((rec.primary, rec.reasoning, *rec.nutrition_notes)).lower()
+        for phrase in ("eat ", "consume ", "you should eat", "increase to"):
+            assert phrase not in text
+
+
+# ---------------------------------------------------------------------------
 # Session classification
 # ---------------------------------------------------------------------------
 

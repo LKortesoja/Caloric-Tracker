@@ -1463,6 +1463,11 @@ class CalorieTrackerCoordinator:
         return eb.calculate_energy_balance(self.intake_calories, self.tdee)
 
     @property
+    def calories_remaining(self) -> float:
+        """Calories left against today's budget; negative means over."""
+        return self.daily_budget - self.intake_calories
+
+    @property
     def sparky_stale(self) -> bool:
         """SparkyFitness unreachable beyond the staleness window."""
         if not self._conf(CONF_SPARKY_ENABLED):

@@ -77,6 +77,7 @@ Copy `custom_components/calorie_tracker/` into your Home Assistant
 | `sensor.calorie_tracker_exercise_count` | Exercise sessions today | — |
 | `sensor.calorie_tracker_correction_factor` | Active correction factor | — |
 | `sensor.calorie_tracker_daily_budget` | TDEE ± goal offset | kcal |
+| `sensor.calorie_tracker_calories_remaining` | Budget − intake so far (negative = over) | kcal |
 | `sensor.calorie_tracker_protein_target` | weight × protein multiplier | g |
 | `sensor.calorie_tracker_weight` | Current weight (smoothed if enabled) | kg |
 | `sensor.calorie_tracker_body_fat` | Body fat percentage | % |

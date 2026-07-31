@@ -360,6 +360,7 @@
       "intake_carbs": { "name": "Intake carbohydrates" },
       "intake_fat": { "name": "Intake fat" },
       "intake_fiber": { "name": "Intake fiber" },
+      "calories_remaining": { "name": "Calories remaining" },
       "energy_balance": { "name": "Energy balance" },
       "protein_adequacy": { "name": "Protein adequacy" },
       "tef": { "name": "Thermic effect of food" },

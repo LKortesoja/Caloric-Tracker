@@ -164,6 +164,23 @@ views:
                   const pct = max > 0 ? Math.min(150, (intake / max) * 100) : 0;
                   return [[Date.now(), Math.round(pct)]];
 
+          # The headline number: how much you have left today.
+          - type: custom:mushroom-template-card
+            entity: sensor.calorie_tracker_calories_remaining
+            primary: >-
+              {% set v = states('sensor.calorie_tracker_calories_remaining') | float(0) %}
+              {% if v >= 0 %}{{ v | round(0) }} kcal left
+              {% else %}{{ (v * -1) | round(0) }} kcal over{% endif %}
+            secondary: >-
+              {{ states('sensor.calorie_tracker_intake_calories') | round(0) }} of
+              {{ states('sensor.calorie_tracker_daily_budget') | round(0) }} kcal budget
+            icon: mdi:food-apple-outline
+            icon_color: >-
+              {% set v = states('sensor.calorie_tracker_calories_remaining') | float(0) %}
+              {% if v < 0 %} red {% elif v < 200 %} orange {% else %} green {% endif %}
+            tap_action:
+              action: more-info
+
           - type: custom:mushroom-chips-card
             alignment: justify
             chips:

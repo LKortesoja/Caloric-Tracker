@@ -381,6 +381,26 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         attributes_fn=_intake_attributes,
     ),
     CalorieTrackerSensorDescription(
+        key="calories_remaining",
+        translation_key="calories_remaining",
+        native_unit_of_measurement=UNIT_KCAL,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:food-apple-outline",
+        suggested_display_precision=0,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.calories_remaining),
+        attributes_fn=lambda c: {
+            "daily_budget": _round(c.daily_budget),
+            "intake_used": _round(c.intake_calories),
+            "pct_of_budget_used": _round(
+                100 * c.intake_calories / c.daily_budget
+            )
+            if c.daily_budget
+            else None,
+            "over_budget": c.calories_remaining < 0,
+        },
+    ),
+    CalorieTrackerSensorDescription(
         key="energy_balance",
         translation_key="energy_balance",
         native_unit_of_measurement=UNIT_KCAL,
