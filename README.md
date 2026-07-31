@@ -302,6 +302,32 @@ barcode scanning, or imputation (missing macros stay unknown, never zero).
 - All targets are user-configured. The integration reports status against the
   user's own settings and does not prescribe intake.
 
+## Dashboard
+
+A complete four-view Lovelace dashboard ships in
+[`dashboards/calorie-tracker-dashboard.yaml`](dashboards/calorie-tracker-dashboard.yaml):
+
+- **Today** — coach card with the current workout recommendation and reasoning,
+  conditional alert cards (aggressive deficit, intake floor, incomplete
+  logging, SparkyFitness offline), budget-used ring, expenditure breakdown
+  (base / TEF / exercise), macro donut, protein adequacy ring, and an intraday
+  intake-vs-budget chart.
+- **Body** — 30- and 90-day weight charts with the 7-day trend overlay (backed
+  by long-term statistics, so history survives recorder purges), body fat and
+  lean-mass history, and current body metrics.
+- **Training** — ACWR chart with the sweet-spot/danger zones shaded, weekly
+  aerobic-minutes ring, daily exercise calories, and TDEE with its 7-day
+  average overlay.
+- **Nutrition** — intake vs expenditure per day, signed energy-balance columns
+  with the 7-day mean, protein vs target, stacked macro history, and a data
+  quality card.
+
+Requires two HACS *frontend* packages: **apexcharts-card** and **Mushroom**.
+Install steps are commented at the top of the YAML file — paste it into a new
+dashboard's raw configuration editor. For the 14-day charts to fill out,
+consider raising `recorder: purge_keep_days:` (default 10) in
+`configuration.yaml`.
+
 ## Development
 
 The metabolic math lives in `calculator.py` with no Home Assistant

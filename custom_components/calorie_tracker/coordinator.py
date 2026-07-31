@@ -1668,6 +1668,29 @@ class CalorieTrackerCoordinator:
         self._schedule_save()
         self.async_update_listeners()
 
+    @property
+    def protein_target_g(self) -> float | None:
+        """Resolved daily protein target — same figure adequacy is scored on."""
+        return self.protein_target[0]
+
+    @property
+    def tef_percentage(self) -> float:
+        return float(self._conf(CONF_TEF_PERCENTAGE, DEFAULT_TEF_PERCENTAGE))
+
+    @property
+    def bmi(self) -> float | None:
+        if self.scale_bmi is not None:
+            return self.scale_bmi
+        weight = self.effective_weight_kg
+        height = self._conf(CONF_HEIGHT_CM)
+        if weight is None or not height:
+            return None
+        return calc.body_mass_index(weight, float(height))
+
+    @property
+    def body_composition_available(self) -> bool:
+        return self.body_fat_pct is not None
+
 
 class SparkyIntakeCoordinator(DataUpdateCoordinator[None]):
     """Polls the SparkyFitness food diary with exponential backoff."""
@@ -1711,29 +1734,3 @@ class SparkyIntakeCoordinator(DataUpdateCoordinator[None]):
         self.main.sparky_connected = True
         self.main.sparky_last_success = dt_util.now()
         self.main.set_sparky_entries([entry.as_dict() for entry in entries])
-
-    @property
-    def protein_target_g(self) -> float | None:
-        weight = self.effective_weight_kg
-        if weight is None:
-            return None
-        multiplier = float(self._conf(CONF_PROTEIN_MULTIPLIER, DEFAULT_PROTEIN_MULTIPLIER))
-        return weight * multiplier
-
-    @property
-    def tef_percentage(self) -> float:
-        return float(self._conf(CONF_TEF_PERCENTAGE, DEFAULT_TEF_PERCENTAGE))
-
-    @property
-    def bmi(self) -> float | None:
-        if self.scale_bmi is not None:
-            return self.scale_bmi
-        weight = self.effective_weight_kg
-        height = self._conf(CONF_HEIGHT_CM)
-        if weight is None or not height:
-            return None
-        return calc.body_mass_index(weight, float(height))
-
-    @property
-    def body_composition_available(self) -> bool:
-        return self.body_fat_pct is not None

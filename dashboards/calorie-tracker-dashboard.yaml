@@ -1,0 +1,755 @@
+# =============================================================================
+# Calorie Tracker — full Lovelace dashboard
+# =============================================================================
+# Requirements (install via HACS -> Frontend):
+#   - apexcharts-card   (https://github.com/RomRider/apexcharts-card)
+#   - Mushroom          (https://github.com/piitaya/lovelace-mushroom)
+#
+# Install: Settings -> Dashboards -> Add Dashboard -> "New dashboard from
+# scratch" -> open it -> pencil -> three-dot menu -> "Raw configuration
+# editor" -> paste this whole file.
+#
+# History depth note: charts that aggregate per-day values read from the HA
+# recorder. The default recorder retention is 10 days; for the 30/90-day
+# views to fill out over time, either raise `recorder: purge_keep_days:` in
+# configuration.yaml or rely on the long-term statistics series (the weight
+# and body-composition charts already use statistics and keep data forever).
+# =============================================================================
+
+title: Calorie Tracker
+views:
+  # ===========================================================================
+  # VIEW 1 — TODAY
+  # ===========================================================================
+  - title: Today
+    path: ct-today
+    icon: mdi:calendar-today
+    type: sections
+    max_columns: 3
+    sections:
+      # ---------------- Coach column ----------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Coach
+            icon: mdi:clipboard-text-play
+
+          - type: custom:mushroom-template-card
+            entity: sensor.calorie_tracker_workout_recommendation
+            primary: "{{ states('sensor.calorie_tracker_workout_recommendation') }}"
+            secondary: >-
+              {{ state_attr('sensor.calorie_tracker_workout_recommendation',
+                            'recommendation_reason') }}
+            icon: >-
+              {% set s = states('sensor.calorie_tracker_workout_recommendation') %}
+              {% if 'Rest' in s %} mdi:sleep
+              {% elif 'Recovery' in s %} mdi:heart-pulse
+              {% elif 'Underfueling' in s %} mdi:food-off
+              {% elif 'Strength' in s %} mdi:dumbbell
+              {% elif 'Zone 2' in s %} mdi:bike
+              {% else %} mdi:bike-fast {% endif %}
+            icon_color: >-
+              {% set s = states('sensor.calorie_tracker_workout_recommendation') %}
+              {% if 'Rest' in s or 'Underfueling' in s %} red
+              {% elif 'Recovery' in s %} orange
+              {% elif 'Strength' in s %} purple
+              {% else %} green {% endif %}
+            multiline_secondary: true
+            tap_action:
+              action: more-info
+
+          - type: custom:mushroom-chips-card
+            alignment: justify
+            chips:
+              - type: entity
+                entity: sensor.calorie_tracker_acwr
+                icon: mdi:speedometer
+                icon_color: >-
+                  {% set v = states('sensor.calorie_tracker_acwr') %}
+                  {% if v in ['unknown', 'initializing'] %} grey
+                  {% elif v | float(0) > 2.0 %} red
+                  {% elif v | float(0) > 1.5 %} orange
+                  {% else %} green {% endif %}
+              - type: entity
+                entity: sensor.calorie_tracker_exercise_count
+                icon: mdi:counter
+              - type: entity
+                entity: sensor.calorie_tracker_exercise_net
+                icon: mdi:fire
+
+          # Alerts appear only when something is actually wrong.
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: binary_sensor.calorie_tracker_aggressive_deficit
+                state: "on"
+            card:
+              type: custom:mushroom-template-card
+              primary: Aggressive deficit
+              secondary: >-
+                Deficit is beyond the 750 kcal/day guideline range today.
+              icon: mdi:alert-decagram
+              icon_color: red
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: binary_sensor.calorie_tracker_below_intake_floor
+                state: "on"
+            card:
+              type: custom:mushroom-template-card
+              primary: Intake below minimum floor
+              secondary: >-
+                Below the configured guideline minimum — see the persistent
+                notification.
+              icon: mdi:food-off
+              icon_color: red
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: binary_sensor.calorie_tracker_incomplete_logging
+                state: "on"
+            card:
+              type: custom:mushroom-template-card
+              primary: Logging incomplete
+              secondary: >-
+                Deficit classification is suspended until today's food log
+                looks complete.
+              icon: mdi:progress-question
+              icon_color: amber
+          - type: conditional
+            conditions:
+              - condition: state
+                entity: binary_sensor.calorie_tracker_sparkyfitness_connected
+                state: "off"
+            card:
+              type: custom:mushroom-template-card
+              primary: SparkyFitness offline
+              secondary: Intake data is from cache or manual entries only.
+              icon: mdi:lan-disconnect
+              icon_color: grey
+
+      # ---------------- Energy column ----------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Energy
+            icon: mdi:lightning-bolt
+
+          # Budget ring: how much of today's calorie budget is eaten.
+          - type: custom:apexcharts-card
+            chart_type: radialBar
+            header:
+              show: true
+              title: Budget used
+              show_states: true
+              colorize_states: true
+            apex_config:
+              plotOptions:
+                radialBar:
+                  startAngle: -110
+                  endAngle: 110
+                  hollow:
+                    size: "70%"
+                  dataLabels:
+                    name:
+                      show: false
+            series:
+              - entity: sensor.calorie_tracker_intake_calories
+                name: Intake vs budget
+                color: "#ff9800"
+                data_generator: |
+                  const budget = hass.states['sensor.calorie_tracker_daily_budget'];
+                  const intake = parseFloat(entity.state);
+                  const max = budget ? parseFloat(budget.state) : 0;
+                  const pct = max > 0 ? Math.min(150, (intake / max) * 100) : 0;
+                  return [[Date.now(), Math.round(pct)]];
+
+          - type: custom:mushroom-chips-card
+            alignment: justify
+            chips:
+              - type: entity
+                entity: sensor.calorie_tracker_intake_calories
+                icon: mdi:silverware-fork-knife
+                icon_color: orange
+              - type: entity
+                entity: sensor.calorie_tracker_daily_budget
+                icon: mdi:food-apple
+                icon_color: green
+              - type: entity
+                entity: sensor.calorie_tracker_energy_balance
+                icon: mdi:scale-balance
+                icon_color: >-
+                  {% set v = states('sensor.calorie_tracker_energy_balance') | float(0) %}
+                  {% if v > 0 %} orange {% else %} blue {% endif %}
+
+          # Where today's expenditure comes from.
+          - type: custom:apexcharts-card
+            chart_type: pie
+            header:
+              show: true
+              title: Today's expenditure breakdown
+            apex_config:
+              legend:
+                position: bottom
+            series:
+              - entity: sensor.calorie_tracker_base_daily
+                name: Base (RMR x PAL)
+                color: "#3f51b5"
+                data_generator: |
+                  return [[Date.now(), parseFloat(entity.state) || 0]];
+              - entity: sensor.calorie_tracker_tef
+                name: TEF (food)
+                color: "#ff9800"
+                data_generator: |
+                  return [[Date.now(), parseFloat(entity.state) || 0]];
+              - entity: sensor.calorie_tracker_exercise_net
+                name: Exercise (net)
+                color: "#4caf50"
+                data_generator: |
+                  return [[Date.now(), parseFloat(entity.state) || 0]];
+
+          - type: entities
+            title: Metabolic detail
+            entities:
+              - entity: sensor.calorie_tracker_rmr
+                name: RMR
+              - entity: sensor.calorie_tracker_base_daily
+                name: Base daily (RMR x PAL)
+              - entity: sensor.calorie_tracker_tdee
+                name: TDEE today
+              - entity: sensor.calorie_tracker_tdee_7d_avg
+                name: TDEE 7-day average
+              - entity: sensor.calorie_tracker_tdee_30d_avg
+                name: TDEE 30-day average
+              - entity: sensor.calorie_tracker_correction_factor
+                name: Device correction factor
+
+      # ---------------- Nutrition-today column ----------------
+      - type: grid
+        cards:
+          - type: heading
+            heading: Nutrition today
+            icon: mdi:food
+
+          - type: custom:apexcharts-card
+            chart_type: donut
+            header:
+              show: true
+              title: Macros (grams)
+            apex_config:
+              legend:
+                position: bottom
+              plotOptions:
+                pie:
+                  donut:
+                    size: "62%"
+            series:
+              - entity: sensor.calorie_tracker_intake_protein
+                name: Protein
+                color: "#e91e63"
+                data_generator: |
+                  return [[Date.now(), parseFloat(entity.state) || 0]];
+              - entity: sensor.calorie_tracker_intake_carbs
+                name: Carbs
+                color: "#ffc107"
+                data_generator: |
+                  return [[Date.now(), parseFloat(entity.state) || 0]];
+              - entity: sensor.calorie_tracker_intake_fat
+                name: Fat
+                color: "#9c27b0"
+                data_generator: |
+                  return [[Date.now(), parseFloat(entity.state) || 0]];
+
+          - type: custom:apexcharts-card
+            chart_type: radialBar
+            header:
+              show: true
+              title: Protein adequacy
+              show_states: true
+            apex_config:
+              plotOptions:
+                radialBar:
+                  hollow:
+                    size: "70%"
+                  dataLabels:
+                    name:
+                      show: false
+            series:
+              - entity: sensor.calorie_tracker_protein_adequacy
+                name: Protein % of target
+                color: "#e91e63"
+                max: 150
+
+          - type: custom:mushroom-chips-card
+            alignment: justify
+            chips:
+              - type: entity
+                entity: sensor.calorie_tracker_intake_protein
+                icon: mdi:food-drumstick
+                icon_color: pink
+              - type: entity
+                entity: sensor.calorie_tracker_protein_target
+                icon: mdi:bullseye-arrow
+              - type: entity
+                entity: sensor.calorie_tracker_protein_per_kg
+                icon: mdi:weight-gram
+              - type: entity
+                entity: sensor.calorie_tracker_meal_protein_distribution
+                icon: mdi:silverware-variant
+
+          # Intraday running intake vs the daily budget line.
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Intake through the day
+            graph_span: 24h
+            span:
+              start: day
+            series:
+              - entity: sensor.calorie_tracker_intake_calories
+                name: Intake
+                type: area
+                color: "#ff9800"
+                stroke_width: 2
+                opacity: 0.25
+                extend_to: now
+              - entity: sensor.calorie_tracker_daily_budget
+                name: Budget
+                type: line
+                color: "#4caf50"
+                stroke_width: 2
+                curve: stepline
+                extend_to: end
+
+  # ===========================================================================
+  # VIEW 2 — BODY (weight & composition history)
+  # ===========================================================================
+  - title: Body
+    path: ct-body
+    icon: mdi:scale-bathroom
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Weight
+            icon: mdi:scale-bathroom
+
+          - type: custom:mushroom-chips-card
+            alignment: justify
+            chips:
+              - type: entity
+                entity: sensor.calorie_tracker_weight
+                icon: mdi:scale-bathroom
+                icon_color: blue
+              - type: entity
+                entity: sensor.calorie_tracker_weight_trend
+                icon: mdi:chart-line
+                icon_color: teal
+              - type: entity
+                entity: sensor.calorie_tracker_bmi
+                icon: mdi:human
+              - type: entity
+                entity: sensor.calorie_tracker_body_fat
+                icon: mdi:percent
+
+          # 30-day weight from long-term statistics (survives recorder purge).
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Weight — 30 days
+              show_states: true
+              colorize_states: true
+            graph_span: 30d
+            series:
+              - entity: sensor.calorie_tracker_weight
+                name: Weight
+                type: line
+                color: "#3f51b5"
+                stroke_width: 2
+                statistics:
+                  type: mean
+                  period: day
+              - entity: sensor.calorie_tracker_weight_trend
+                name: 7-day trend
+                type: line
+                color: "#009688"
+                stroke_width: 3
+                statistics:
+                  type: mean
+                  period: day
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Weight — 90 days
+            graph_span: 90d
+            series:
+              - entity: sensor.calorie_tracker_weight
+                name: Weight
+                type: line
+                color: "#3f51b5"
+                stroke_width: 2
+                statistics:
+                  type: mean
+                  period: day
+                group_by:
+                  func: raw
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Body composition
+            icon: mdi:arm-flex
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Body fat % — 90 days
+              show_states: true
+            graph_span: 90d
+            series:
+              - entity: sensor.calorie_tracker_body_fat
+                name: Body fat
+                type: line
+                color: "#ff5722"
+                stroke_width: 2
+                statistics:
+                  type: mean
+                  period: day
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Lean mass — 90 days
+              show_states: true
+            graph_span: 90d
+            series:
+              - entity: sensor.calorie_tracker_fat_free_mass
+                name: Fat-free mass
+                type: line
+                color: "#00bcd4"
+                stroke_width: 2
+                statistics:
+                  type: mean
+                  period: day
+              - entity: sensor.calorie_tracker_muscle_mass
+                name: Muscle mass
+                type: line
+                color: "#8bc34a"
+                stroke_width: 2
+                statistics:
+                  type: mean
+                  period: day
+
+          - type: entities
+            title: Current body metrics
+            entities:
+              - sensor.calorie_tracker_weight
+              - sensor.calorie_tracker_weight_trend
+              - sensor.calorie_tracker_body_fat
+              - sensor.calorie_tracker_fat_free_mass
+              - sensor.calorie_tracker_muscle_mass
+              - sensor.calorie_tracker_bmi
+
+  # ===========================================================================
+  # VIEW 3 — TRAINING (exercise history & load management)
+  # ===========================================================================
+  - title: Training
+    path: ct-training
+    icon: mdi:bike
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Load management
+            icon: mdi:speedometer
+
+          # ACWR with the evidence-based zones marked.
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: ACWR — acute:chronic workload ratio
+              show_states: true
+              colorize_states: true
+            graph_span: 30d
+            yaxis:
+              - min: 0
+                max: 2.5
+            apex_config:
+              annotations:
+                yaxis:
+                  - y: 0.8
+                    y2: 1.5
+                    fillColor: "#4caf50"
+                    opacity: 0.12
+                    label:
+                      text: sweet spot
+                  - y: 1.5
+                    y2: 2.0
+                    fillColor: "#ff9800"
+                    opacity: 0.12
+                  - y: 2.0
+                    y2: 2.5
+                    fillColor: "#f44336"
+                    opacity: 0.12
+                    label:
+                      text: danger
+            series:
+              - entity: sensor.calorie_tracker_acwr
+                name: ACWR
+                type: line
+                color: "#3f51b5"
+                stroke_width: 3
+                group_by:
+                  func: last
+                  duration: 1d
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Weekly aerobic minutes
+              show_states: true
+            chart_type: radialBar
+            apex_config:
+              plotOptions:
+                radialBar:
+                  hollow:
+                    size: "70%"
+                  dataLabels:
+                    name:
+                      show: false
+            series:
+              - entity: sensor.calorie_tracker_weekly_aerobic_minutes
+                name: Aerobic minutes vs target
+                color: "#4caf50"
+                data_generator: |
+                  const target = entity.attributes.target_minutes || 150;
+                  const pct = Math.min(150, (parseFloat(entity.state) / target) * 100);
+                  return [[Date.now(), Math.round(pct)]];
+
+          - type: custom:mushroom-chips-card
+            alignment: justify
+            chips:
+              - type: entity
+                entity: sensor.calorie_tracker_weekly_aerobic_minutes
+                icon: mdi:heart-pulse
+                icon_color: red
+              - type: entity
+                entity: sensor.calorie_tracker_monthly_distance_progress
+                icon: mdi:map-marker-distance
+                icon_color: blue
+              - type: entity
+                entity: sensor.calorie_tracker_rolling_7d_deficit
+                icon: mdi:calendar-week
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Exercise history
+            icon: mdi:history
+
+          # Daily net exercise burn. The sensor resets at midnight, so the
+          # per-day maximum equals that day's final total.
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Daily exercise calories — 14 days
+            graph_span: 14d
+            series:
+              - entity: sensor.calorie_tracker_exercise_net
+                name: Net kcal
+                type: column
+                color: "#4caf50"
+                group_by:
+                  func: max
+                  duration: 1d
+              - entity: sensor.calorie_tracker_exercise_gross
+                name: Gross kcal
+                type: column
+                color: "#a5d6a7"
+                opacity: 0.5
+                group_by:
+                  func: max
+                  duration: 1d
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: TDEE — 14 days
+            graph_span: 14d
+            series:
+              - entity: sensor.calorie_tracker_tdee
+                name: TDEE
+                type: column
+                color: "#3f51b5"
+                group_by:
+                  func: max
+                  duration: 1d
+              - entity: sensor.calorie_tracker_tdee_7d_avg
+                name: 7-day avg
+                type: line
+                color: "#009688"
+                stroke_width: 3
+                group_by:
+                  func: last
+                  duration: 1d
+
+          - type: entities
+            title: Session log (today)
+            entities:
+              - entity: sensor.calorie_tracker_exercise_count
+                name: Sessions today
+              - entity: sensor.calorie_tracker_exercise_gross
+                name: Gross calories
+              - entity: sensor.calorie_tracker_exercise_net
+                name: Net calories
+              - entity: sensor.calorie_tracker_workout_recommendation
+                name: Recommendation
+
+  # ===========================================================================
+  # VIEW 4 — NUTRITION (intake history & energy balance)
+  # ===========================================================================
+  - title: Nutrition
+    path: ct-nutrition
+    icon: mdi:silverware-fork-knife
+    type: sections
+    max_columns: 2
+    sections:
+      - type: grid
+        cards:
+          - type: heading
+            heading: Energy balance history
+            icon: mdi:scale-balance
+
+          # Intake vs TDEE per day: the gap between the bars IS the deficit.
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Intake vs expenditure — 14 days
+            graph_span: 14d
+            series:
+              - entity: sensor.calorie_tracker_intake_calories
+                name: Intake
+                type: column
+                color: "#ff9800"
+                group_by:
+                  func: max
+                  duration: 1d
+              - entity: sensor.calorie_tracker_tdee
+                name: TDEE
+                type: line
+                color: "#3f51b5"
+                stroke_width: 3
+                group_by:
+                  func: max
+                  duration: 1d
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Energy balance — 14 days
+              show_states: true
+              colorize_states: true
+            graph_span: 14d
+            apex_config:
+              annotations:
+                yaxis:
+                  - y: 0
+                    strokeDashArray: 4
+                    borderColor: "#9e9e9e"
+            series:
+              - entity: sensor.calorie_tracker_energy_balance
+                name: Daily balance
+                type: column
+                group_by:
+                  func: last
+                  duration: 1d
+                color_threshold:
+                  - value: -10000
+                    color: "#2196f3"
+                  - value: 0
+                    color: "#ff9800"
+              - entity: sensor.calorie_tracker_rolling_7d_deficit
+                name: 7-day mean
+                type: line
+                color: "#673ab7"
+                stroke_width: 3
+                group_by:
+                  func: last
+                  duration: 1d
+
+      - type: grid
+        cards:
+          - type: heading
+            heading: Protein & macros history
+            icon: mdi:food-drumstick
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Protein — 14 days
+            graph_span: 14d
+            series:
+              - entity: sensor.calorie_tracker_intake_protein
+                name: Protein (g)
+                type: column
+                color: "#e91e63"
+                group_by:
+                  func: max
+                  duration: 1d
+              - entity: sensor.calorie_tracker_protein_target
+                name: Target
+                type: line
+                color: "#9e9e9e"
+                stroke_width: 2
+                curve: stepline
+                group_by:
+                  func: last
+                  duration: 1d
+
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Macro grams — 14 days
+            graph_span: 14d
+            apex_config:
+              chart:
+                stacked: true
+            series:
+              - entity: sensor.calorie_tracker_intake_protein
+                name: Protein
+                type: column
+                color: "#e91e63"
+                group_by:
+                  func: max
+                  duration: 1d
+              - entity: sensor.calorie_tracker_intake_carbs
+                name: Carbs
+                type: column
+                color: "#ffc107"
+                group_by:
+                  func: max
+                  duration: 1d
+              - entity: sensor.calorie_tracker_intake_fat
+                name: Fat
+                type: column
+                color: "#9c27b0"
+                group_by:
+                  func: max
+                  duration: 1d
+
+          - type: entities
+            title: Data quality
+            entities:
+              - entity: binary_sensor.calorie_tracker_sparkyfitness_connected
+                name: SparkyFitness connection
+              - entity: binary_sensor.calorie_tracker_incomplete_logging
+                name: Logging incomplete
+              - entity: sensor.calorie_tracker_tef
+                name: Thermic effect of food
+              - entity: sensor.calorie_tracker_intake_fiber
+                name: Fiber today

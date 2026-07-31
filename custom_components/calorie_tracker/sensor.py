@@ -14,8 +14,8 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -51,7 +51,8 @@ def _round(value: float | None, digits: int = 1) -> float | None:
 
 def _tdee_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
     return {
-        "rmr_equation_used": coordinator.rmr_equation,
+        "rmr_equation_used": coordinator.rmr_source,
+        "tdee_calculation_mode": coordinator.tdee_calculation_mode,
         "rmr_value": _round(coordinator.rmr),
         "pal_factor": coordinator.pal_factor,
         "tef_percentage": coordinator.tef_percentage,
@@ -314,6 +315,10 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         icon="mdi:food-steak",
         suggested_display_precision=0,
         value_fn=lambda c: _round(c.protein_target_g),
+        attributes_fn=lambda c: {
+            "target_basis": c.protein_target[1],
+            "basis_weight_kg": _round(c.protein_target[2]),
+        },
     ),
     CalorieTrackerSensorDescription(
         key="intake_calories",
@@ -576,7 +581,6 @@ class CalorieTrackerSensor(SensorEntity):
             name="Calorie Tracker",
             manufacturer="Calorie Tracker",
             model="TDEE Calculator",
-            entry_type=None,
         )
 
     async def async_added_to_hass(self) -> None:
