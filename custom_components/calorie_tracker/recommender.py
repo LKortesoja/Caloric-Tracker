@@ -90,6 +90,14 @@ class TrainingSnapshot:
     monthly_strength_goal: int
     weekly_rest_days_target: int
     polarization_threshold_pct: int
+    # Nutrition inputs (defaults keep the engine usable without intake data).
+    rolling_7d_deficit: float | None = None  # mean signed energy balance
+    below_floor_days_7d: int = 0
+    incomplete_logging: bool = True
+    protein_inadequate: bool = False
+    energy_surplus_kcal: float | None = None
+    weight_goal_mode: str = "maintenance"
+    nutrition_connected: bool = False
 
 
 @dataclass
@@ -111,6 +119,8 @@ class Recommendation:
     acute_fatigue: bool
     polarization_high_skew: bool
     strength_priority_high: bool
+    underfueling: bool = False
+    nutrition_notes: tuple[str, ...] = ()
 
 
 def evaluate(snapshot: TrainingSnapshot) -> Recommendation:
@@ -183,6 +193,15 @@ def evaluate(snapshot: TrainingSnapshot) -> Recommendation:
         acwr_ratio is not None and ACWR_ELEVATED < acwr_ratio <= ACWR_DANGER
     )
 
+    # Underfueling tier: above polarization/strength, below rest and ACWR.
+    underfueling = not snapshot.incomplete_logging and (
+        (
+            snapshot.rolling_7d_deficit is not None
+            and snapshot.rolling_7d_deficit < -1000
+        )
+        or snapshot.below_floor_days_7d >= 3
+    )
+
     if mandatory_rest or acwr_danger:
         primary = "Full Passive Rest Day"
         reasoning = (
@@ -195,6 +214,14 @@ def evaluate(snapshot: TrainingSnapshot) -> Recommendation:
         reasoning = (
             "Elevated load detected. Promote blood flow without generating "
             "central fatigue."
+        )
+    elif underfueling:
+        primary = "Light Activity Only — Underfueling Detected"
+        reasoning = (
+            "Sustained energy availability is low. Large energy deficits blunt "
+            "the protective effect of dietary protein on lean mass and "
+            "increase the risk of maladaptation. Consider increasing intake "
+            "before resuming high loads."
         )
     elif strength_priority_high and not strength_lockout:
         primary = "30 min Full Body / Upper Body Strength"
@@ -222,9 +249,33 @@ def evaluate(snapshot: TrainingSnapshot) -> Recommendation:
             primary += " + 10 min Post-Ride Stretch/Mobility"
             reasoning += " Fewer than 2 mobility sessions this week."
 
+    # Secondary nutrition notes: status only — never an intake prescription.
+    notes: list[str] = []
+    if snapshot.protein_inadequate and "Strength" in primary:
+        notes.append(
+            "Protein intake is below target — resistance training benefits "
+            "on lean mass depend on adequate protein."
+        )
+    if (
+        snapshot.energy_surplus_kcal is not None
+        and snapshot.energy_surplus_kcal > 0
+        and snapshot.weight_goal_mode == "loss"
+    ):
+        notes.append(
+            f"Current energy balance is a surplus of "
+            f"{snapshot.energy_surplus_kcal:.0f} kcal against a weight-loss goal."
+        )
+    if not snapshot.nutrition_connected:
+        notes.append(
+            "Nutrition data unavailable — recommendation based on training "
+            "load only."
+        )
+
     return Recommendation(
         primary=primary,
         reasoning=reasoning,
+        underfueling=underfueling,
+        nutrition_notes=tuple(notes),
         acwr_ratio=acwr_ratio,
         acute_ewma=acute_ewma,
         chronic_ewma=chronic_ewma,

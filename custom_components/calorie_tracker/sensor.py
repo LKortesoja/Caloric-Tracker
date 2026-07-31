@@ -19,7 +19,16 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .const import DISPLAY_UNIT_LB, DOMAIN
+from .const import (
+    CONF_PER_MEAL_PROTEIN_G,
+    CONF_SPARKY_ENABLED,
+    CONF_TEF_MODE,
+    DEFAULT_PER_MEAL_PROTEIN_G,
+    DISPLAY_UNIT_LB,
+    DOMAIN,
+    TEF_MODE_FLAT,
+    TEF_MODE_MACRO,
+)
 from .coordinator import CalorieTrackerCoordinator
 
 UNIT_KCAL = "kcal"
@@ -33,6 +42,7 @@ class CalorieTrackerSensorDescription(SensorEntityDescription):
     value_fn: Callable[[CalorieTrackerCoordinator], Any]
     attributes_fn: Callable[[CalorieTrackerCoordinator], dict[str, Any]] | None = None
     daily_total: bool = False
+    intake_sensor: bool = False  # unavailable when the source is down w/o cache
 
 
 def _round(value: float | None, digits: int = 1) -> float | None:
@@ -67,6 +77,8 @@ def _recommendation_attributes(coordinator: CalorieTrackerCoordinator) -> dict[s
         "acute_fatigue": rec.acute_fatigue,
         "polarization_high_skew": rec.polarization_high_skew,
         "strength_priority_high": rec.strength_priority_high,
+        "underfueling": rec.underfueling,
+        "nutrition_notes": list(rec.nutrition_notes),
         "required_daily_pace": _round(rec.required_daily_pace, 2),
     }
 
@@ -76,6 +88,52 @@ def _acwr_value(coordinator: CalorieTrackerCoordinator) -> Any:
     if rec.acwr_ratio is None:
         return "initializing"
     return round(rec.acwr_ratio, 2)
+
+
+def _intake_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
+    return {
+        "source": coordinator.intake_source,
+        "entry_count": coordinator.intake_entry_count,
+        "manual_entry_count": coordinator.manual_entry_count,
+        "last_sync": coordinator.sparky_last_success.isoformat()
+        if coordinator.sparky_last_success
+        else None,
+        "macros_complete": coordinator.macros_complete,
+    }
+
+
+def _energy_balance_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
+    classification = coordinator.deficit_classification
+    return {
+        "deficit_classification": classification,
+        "aggressive_deficit_flag": coordinator.energy_balance_is_aggressive,
+        "below_intake_floor_flag": coordinator.below_intake_floor,
+        "tdee_used": _round(coordinator.tdee),
+        "intake_used": _round(coordinator.intake_calories),
+        "tdee_calculation_mode": coordinator.tdee_calculation_mode,
+        "intake_floor_kcal": coordinator.intake_floor_kcal,
+    }
+
+
+def _protein_adequacy_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
+    target_g, basis, basis_weight = coordinator.protein_target
+    _, band, critical = coordinator.protein_adequacy
+    per_kg = (
+        coordinator.intake_protein_g / coordinator.effective_weight_kg
+        if coordinator.effective_weight_kg
+        else None
+    )
+    return {
+        "protein_target_g": _round(target_g),
+        "protein_g_actual": _round(coordinator.intake_protein_g),
+        "protein_g_corrected": _round(coordinator.intake_protein_g_corrected),
+        "protein_g_per_kg": _round(per_kg, 2),
+        "target_basis": basis,
+        "basis_weight_kg": _round(basis_weight),
+        "status_band": band,
+        "critical_low_protein_flag": critical,
+        "high_protein_advisory_flag": coordinator.high_protein_advisory,
+    }
 
 
 def _weight_attributes(coordinator: CalorieTrackerCoordinator) -> dict[str, Any]:
@@ -258,6 +316,158 @@ SENSORS: tuple[CalorieTrackerSensorDescription, ...] = (
         value_fn=lambda c: _round(c.protein_target_g),
     ),
     CalorieTrackerSensorDescription(
+        key="intake_calories",
+        translation_key="intake_calories",
+        native_unit_of_measurement=UNIT_KCAL,
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:silverware-fork-knife",
+        suggested_display_precision=0,
+        daily_total=True,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.intake_calories),
+        attributes_fn=_intake_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="intake_protein",
+        translation_key="intake_protein",
+        native_unit_of_measurement="g",
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:food-drumstick",
+        suggested_display_precision=0,
+        daily_total=True,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.intake_protein_g),
+        attributes_fn=_intake_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="intake_carbs",
+        translation_key="intake_carbs",
+        native_unit_of_measurement="g",
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:bread-slice",
+        suggested_display_precision=0,
+        daily_total=True,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.intake_carbs_g),
+        attributes_fn=_intake_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="intake_fat",
+        translation_key="intake_fat",
+        native_unit_of_measurement="g",
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:oil",
+        suggested_display_precision=0,
+        daily_total=True,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.intake_fat_g),
+        attributes_fn=_intake_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="intake_fiber",
+        translation_key="intake_fiber",
+        native_unit_of_measurement="g",
+        state_class=SensorStateClass.TOTAL,
+        icon="mdi:corn",
+        suggested_display_precision=0,
+        daily_total=True,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.intake_fiber_g),
+        attributes_fn=_intake_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="energy_balance",
+        translation_key="energy_balance",
+        native_unit_of_measurement=UNIT_KCAL,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:scale-balance",
+        suggested_display_precision=0,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.energy_balance_kcal),
+        attributes_fn=_energy_balance_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="protein_adequacy",
+        translation_key="protein_adequacy",
+        native_unit_of_measurement="%",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:food-steak",
+        suggested_display_precision=0,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.protein_adequacy[0]),
+        attributes_fn=_protein_adequacy_attributes,
+    ),
+    CalorieTrackerSensorDescription(
+        key="tef",
+        translation_key="tef",
+        native_unit_of_measurement=UNIT_KCAL,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:fire-circle",
+        suggested_display_precision=0,
+        intake_sensor=True,
+        value_fn=lambda c: _round(c.tef_result.tef_kcal),
+        attributes_fn=lambda c: {
+            "calculation_mode": TEF_MODE_FLAT
+            if c.tef_result.estimated
+            else c._conf(CONF_TEF_MODE, TEF_MODE_MACRO),
+            "tef_estimated": c.tef_result.estimated,
+            "protein_tef_kcal": _round(c.tef_result.protein_kcal),
+            "carbs_tef_kcal": _round(c.tef_result.carbs_kcal),
+            "fat_tef_kcal": _round(c.tef_result.fat_kcal),
+        },
+    ),
+    CalorieTrackerSensorDescription(
+        key="protein_per_kg",
+        translation_key="protein_per_kg",
+        native_unit_of_measurement="g/kg",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:weight-gram",
+        suggested_display_precision=2,
+        intake_sensor=True,
+        value_fn=lambda c: _round(
+            c.intake_protein_g / c.effective_weight_kg, 2
+        )
+        if c.effective_weight_kg
+        else None,
+        attributes_fn=lambda c: {
+            "basis_weight_kg": _round(c.effective_weight_kg),
+            "rolling_7d_g_per_kg": _round(c.rolling_7d_protein_g_per_kg, 2),
+        },
+    ),
+    CalorieTrackerSensorDescription(
+        key="rolling_7d_deficit",
+        translation_key="rolling_7d_deficit",
+        native_unit_of_measurement=UNIT_KCAL,
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:calendar-week",
+        suggested_display_precision=0,
+        value_fn=lambda c: _round(c.rolling_7d_energy_balance[0]),
+        attributes_fn=lambda c: {
+            "days_with_complete_data": c.rolling_7d_energy_balance[1],
+        },
+    ),
+    CalorieTrackerSensorDescription(
+        key="meal_protein_distribution",
+        translation_key="meal_protein_distribution",
+        state_class=SensorStateClass.MEASUREMENT,
+        icon="mdi:silverware-variant",
+        intake_sensor=True,
+        value_fn=lambda c: c.meals_meeting_protein_target,
+        attributes_fn=lambda c: {
+            "per_meal_target_g": c._conf(
+                CONF_PER_MEAL_PROTEIN_G, DEFAULT_PER_MEAL_PROTEIN_G
+            ),
+            "meals_logged": len(c.per_meal_breakdown),
+            "meal_inferred": any(
+                entry.get("meal_inferred") for entry in c.food_entries
+            ),
+            "per_meal_breakdown": {
+                meal: _round(protein)
+                for meal, protein in c.per_meal_breakdown.items()
+            },
+        },
+    ),
+    CalorieTrackerSensorDescription(
         key="weight",
         translation_key="weight",
         native_unit_of_measurement="kg",
@@ -379,6 +589,16 @@ class CalorieTrackerSensor(SensorEntity):
     @callback
     def _handle_update(self) -> None:
         self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Intake sensors go unavailable when the source is down with no cache."""
+        if not self.entity_description.intake_sensor:
+            return True
+        coordinator = self.coordinator
+        if not coordinator._conf(CONF_SPARKY_ENABLED):
+            return True
+        return coordinator.sparky_connected or bool(coordinator.food_entries)
 
     @property
     def native_value(self) -> Any:

@@ -14,8 +14,55 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers import selector
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from . import calculator as calc
+from .sparkyfitness import (
+    SparkyFitnessAuthError,
+    SparkyFitnessClient,
+    SparkyFitnessConnectionError,
+    SparkyFitnessSchemaError,
+    SparkyFitnessSslError,
+)
+from .const import (
+    CONF_ADAPTIVE_THERMO,
+    CONF_DEFICIT_CUTOFF_HOUR,
+    CONF_DYNAMIC_RMR_ENTITY,
+    CONF_ENABLE_MANUAL_ENTRY,
+    CONF_MIN_INTAKE_FLOOR,
+    CONF_PER_MEAL_PROTEIN_G,
+    CONF_PROTEIN_ABSOLUTE_G,
+    CONF_PROTEIN_BASIS,
+    CONF_PROTEIN_CORRECTION_PCT,
+    CONF_PROTEIN_G_PER_KG,
+    CONF_PROTEIN_G_PER_KG_FFM,
+    CONF_SPARKY_API_KEY,
+    CONF_SPARKY_BASE_URL,
+    CONF_SPARKY_ENABLED,
+    CONF_SPARKY_POLL_INTERVAL,
+    CONF_SPARKY_PUSH_EXERCISE,
+    CONF_SPARKY_USER_ID,
+    CONF_SPARKY_VERIFY_SSL,
+    CONF_TARGET_DAILY_DEFICIT,
+    CONF_TEF_MODE,
+    CONF_WEIGHT_GOAL_MODE,
+    DEFAULT_DEFICIT_CUTOFF_HOUR,
+    DEFAULT_PER_MEAL_PROTEIN_G,
+    DEFAULT_PROTEIN_ABSOLUTE_G,
+    DEFAULT_PROTEIN_CORRECTION_PCT,
+    DEFAULT_PROTEIN_G_PER_KG,
+    DEFAULT_PROTEIN_G_PER_KG_FFM,
+    DEFAULT_SPARKY_POLL_INTERVAL,
+    DEFAULT_TARGET_DAILY_DEFICIT,
+    PROTEIN_BASES,
+    PROTEIN_BASIS_TBW,
+    SPARKY_POLL_INTERVAL_MAX,
+    SPARKY_POLL_INTERVAL_MIN,
+    TEF_MODE_MACRO,
+    TEF_MODES,
+    WEIGHT_GOAL_MAINTENANCE,
+    WEIGHT_GOAL_MODES,
+)
 from .const import (
     BUDGET_MODES,
     CONF_ACTIVITY_LEVEL,
@@ -359,7 +406,7 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
     ) -> ConfigFlowResult:
         if user_input is not None:
             self._data.update(user_input)
-            return self.async_create_entry(title="Calorie Tracker", data=self._data)
+            return await self.async_step_sparkyfitness()
 
         schema = vol.Schema(
             {
@@ -371,9 +418,228 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                         mode=selector.NumberSelectorMode.SLIDER,
                     )
                 ),
+                vol.Optional(CONF_DYNAMIC_RMR_ENTITY): _sensor_selector(),
             }
         )
         return self.async_show_form(step_id="optional", data_schema=schema)
+
+    # ---------------- Step 7: SparkyFitness connection ----------------
+
+    async def _async_validate_sparkyfitness(
+        self, user_input: dict[str, Any]
+    ) -> str | None:
+        """Issue a lightweight authenticated request; return an error key."""
+        client = SparkyFitnessClient(
+            session=async_get_clientsession(
+                self.hass, verify_ssl=user_input.get(CONF_SPARKY_VERIFY_SSL, True)
+            ),
+            base_url=user_input[CONF_SPARKY_BASE_URL],
+            api_key=user_input[CONF_SPARKY_API_KEY],
+            user_id=user_input.get(CONF_SPARKY_USER_ID) or None,
+            verify_ssl=user_input.get(CONF_SPARKY_VERIFY_SSL, True),
+        )
+        try:
+            await client.async_validate()
+        except SparkyFitnessAuthError:
+            return "invalid_auth"
+        except SparkyFitnessSslError:
+            return "ssl_error"
+        except SparkyFitnessConnectionError:
+            return "cannot_connect"
+        except SparkyFitnessSchemaError:
+            return "unexpected_schema"
+        return None
+
+    async def async_step_sparkyfitness(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            if not user_input.get(CONF_SPARKY_ENABLED):
+                self._data[CONF_SPARKY_ENABLED] = False
+                return await self.async_step_nutrition()
+            if not user_input.get(CONF_SPARKY_BASE_URL) or not user_input.get(
+                CONF_SPARKY_API_KEY
+            ):
+                errors["base"] = "sparkyfitness_credentials_required"
+            elif error := await self._async_validate_sparkyfitness(user_input):
+                errors["base"] = error
+            else:
+                self._data.update(user_input)
+                return await self.async_step_nutrition()
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SPARKY_ENABLED, default=False
+                ): selector.BooleanSelector(),
+                vol.Optional(CONF_SPARKY_BASE_URL): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.URL
+                    )
+                ),
+                vol.Optional(CONF_SPARKY_API_KEY): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD
+                    )
+                ),
+                vol.Optional(CONF_SPARKY_USER_ID): selector.TextSelector(),
+                vol.Required(
+                    CONF_SPARKY_VERIFY_SSL, default=True
+                ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_SPARKY_POLL_INTERVAL,
+                    default=DEFAULT_SPARKY_POLL_INTERVAL,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=SPARKY_POLL_INTERVAL_MIN,
+                        max=SPARKY_POLL_INTERVAL_MAX,
+                        step=5,
+                        unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_SPARKY_PUSH_EXERCISE, default=True
+                ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_ENABLE_MANUAL_ENTRY, default=True
+                ): selector.BooleanSelector(),
+            }
+        )
+        return self.async_show_form(
+            step_id="sparkyfitness", data_schema=schema, errors=errors
+        )
+
+    # ---------------- Step 8: nutrition goals ----------------
+
+    async def async_step_nutrition(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            self._data.update(user_input)
+            return self.async_create_entry(title="Calorie Tracker", data=self._data)
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_WEIGHT_GOAL_MODE, default=WEIGHT_GOAL_MAINTENANCE
+                ): _select(WEIGHT_GOAL_MODES, "weight_goal_mode"),
+                vol.Required(
+                    CONF_TARGET_DAILY_DEFICIT,
+                    default=DEFAULT_TARGET_DAILY_DEFICIT,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=1000, step=50, unit_of_measurement="kcal",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                vol.Optional(CONF_MIN_INTAKE_FLOOR): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=800, max=3000, step=50, unit_of_measurement="kcal",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_PROTEIN_BASIS, default=PROTEIN_BASIS_TBW
+                ): _select(PROTEIN_BASES, "protein_basis"),
+                vol.Required(
+                    CONF_PROTEIN_G_PER_KG, default=DEFAULT_PROTEIN_G_PER_KG
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.8, max=2.4, step=0.1, unit_of_measurement="g/kg",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_PROTEIN_G_PER_KG_FFM,
+                    default=DEFAULT_PROTEIN_G_PER_KG_FFM,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=1.0, max=3.0, step=0.1,
+                        unit_of_measurement="g/kg FFM",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_PROTEIN_ABSOLUTE_G, default=DEFAULT_PROTEIN_ABSOLUTE_G
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=80, max=120, step=5, unit_of_measurement="g",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_PER_MEAL_PROTEIN_G, default=DEFAULT_PER_MEAL_PROTEIN_G
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=25, max=30, step=1, unit_of_measurement="g",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_TEF_MODE, default=TEF_MODE_MACRO
+                ): _select(TEF_MODES, "tef_mode"),
+                vol.Required(
+                    CONF_PROTEIN_CORRECTION_PCT,
+                    default=DEFAULT_PROTEIN_CORRECTION_PCT,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=15, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                vol.Required(
+                    CONF_DEFICIT_CUTOFF_HOUR,
+                    default=DEFAULT_DEFICIT_CUTOFF_HOUR,
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=17, max=23, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_ADAPTIVE_THERMO, default=False
+                ): selector.BooleanSelector(),
+            }
+        )
+        return self.async_show_form(step_id="nutrition", data_schema=schema)
+
+    # ---------------- Reauth (rotated/expired API key) ----------------
+
+    async def async_step_reauth(
+        self, entry_data: dict[str, Any]
+    ) -> ConfigFlowResult:
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        errors: dict[str, str] = {}
+        entry = self._get_reauth_entry()
+        if user_input is not None:
+            candidate = {
+                **entry.data,
+                CONF_SPARKY_API_KEY: user_input[CONF_SPARKY_API_KEY],
+            }
+            if error := await self._async_validate_sparkyfitness(candidate):
+                errors["base"] = error
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data=candidate
+                )
+        schema = vol.Schema(
+            {
+                vol.Required(CONF_SPARKY_API_KEY): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="reauth_confirm", data_schema=schema, errors=errors
+        )
 
     @staticmethod
     @callback
@@ -515,6 +781,78 @@ class CalorieTrackerOptionsFlow(OptionsFlow):
                     selector.NumberSelectorConfig(
                         min=5, max=15, step=1, unit_of_measurement="%",
                         mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                vol.Required(
+                    CONF_WEIGHT_GOAL_MODE,
+                    default=current(CONF_WEIGHT_GOAL_MODE, WEIGHT_GOAL_MAINTENANCE),
+                ): _select(WEIGHT_GOAL_MODES, "weight_goal_mode"),
+                vol.Required(
+                    CONF_TARGET_DAILY_DEFICIT,
+                    default=current(
+                        CONF_TARGET_DAILY_DEFICIT, DEFAULT_TARGET_DAILY_DEFICIT
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=1000, step=50, unit_of_measurement="kcal",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                vol.Required(
+                    CONF_PROTEIN_BASIS,
+                    default=current(CONF_PROTEIN_BASIS, PROTEIN_BASIS_TBW),
+                ): _select(PROTEIN_BASES, "protein_basis"),
+                vol.Required(
+                    CONF_PROTEIN_G_PER_KG,
+                    default=current(CONF_PROTEIN_G_PER_KG, DEFAULT_PROTEIN_G_PER_KG),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0.8, max=2.4, step=0.1, unit_of_measurement="g/kg",
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_TEF_MODE,
+                    default=current(CONF_TEF_MODE, TEF_MODE_MACRO),
+                ): _select(TEF_MODES, "tef_mode"),
+                vol.Required(
+                    CONF_PROTEIN_CORRECTION_PCT,
+                    default=current(
+                        CONF_PROTEIN_CORRECTION_PCT, DEFAULT_PROTEIN_CORRECTION_PCT
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=15, step=1, unit_of_measurement="%",
+                        mode=selector.NumberSelectorMode.SLIDER,
+                    )
+                ),
+                vol.Required(
+                    CONF_DEFICIT_CUTOFF_HOUR,
+                    default=current(
+                        CONF_DEFICIT_CUTOFF_HOUR, DEFAULT_DEFICIT_CUTOFF_HOUR
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=17, max=23, step=1,
+                        mode=selector.NumberSelectorMode.BOX,
+                    )
+                ),
+                vol.Required(
+                    CONF_ADAPTIVE_THERMO,
+                    default=current(CONF_ADAPTIVE_THERMO, False),
+                ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_SPARKY_POLL_INTERVAL,
+                    default=current(
+                        CONF_SPARKY_POLL_INTERVAL, DEFAULT_SPARKY_POLL_INTERVAL
+                    ),
+                ): selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=SPARKY_POLL_INTERVAL_MIN,
+                        max=SPARKY_POLL_INTERVAL_MAX,
+                        step=5,
+                        unit_of_measurement="min",
+                        mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
             }

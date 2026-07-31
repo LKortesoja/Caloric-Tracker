@@ -122,3 +122,125 @@ reset_daily:
   description: >-
     Manually reset today's exercise sessions and daily totals. Weight and body
     composition data are kept.
+
+log_food:
+  name: Log food (fallback)
+  description: >-
+    Manually log a food entry. Intended as a fallback when the SparkyFitness
+    instance is offline; manual entries are merged with synced entries.
+  fields:
+    food_name:
+      name: Food name
+      required: true
+      example: "Greek yogurt"
+      selector:
+        text:
+    calories:
+      name: Calories
+      required: true
+      example: 150
+      selector:
+        number:
+          min: 0
+          max: 10000
+          unit_of_measurement: kcal
+          mode: box
+    protein_g:
+      name: Protein
+      required: false
+      example: 15
+      selector:
+        number:
+          min: 0
+          max: 500
+          unit_of_measurement: g
+          mode: box
+    carbs_g:
+      name: Carbohydrates
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 2000
+          unit_of_measurement: g
+          mode: box
+    fat_g:
+      name: Fat
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 1000
+          unit_of_measurement: g
+          mode: box
+    fiber_g:
+      name: Fiber
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 300
+          unit_of_measurement: g
+          mode: box
+    meal:
+      name: Meal
+      description: Omit to infer from the time of day.
+      required: false
+      selector:
+        select:
+          options:
+            - breakfast
+            - lunch
+            - dinner
+            - snack
+
+set_protein_target:
+  name: Set protein target
+  description: Update the protein target value (and optionally the basis).
+  fields:
+    value:
+      name: Value
+      description: g/kg for weight-based bases, grams for the absolute basis.
+      required: true
+      example: 1.6
+      selector:
+        number:
+          min: 0.4
+          max: 300
+          step: 0.1
+          mode: box
+    basis:
+      name: Basis
+      required: false
+      selector:
+        select:
+          options:
+            - total_body_weight
+            - fat_free_mass
+            - absolute_grams
+
+set_deficit_target:
+  name: Set deficit target
+  description: Update the target daily deficit (0-1000 kcal).
+  fields:
+    kcal:
+      name: Deficit
+      required: true
+      example: 500
+      selector:
+        number:
+          min: 0
+          max: 1000
+          step: 50
+          unit_of_measurement: kcal
+          mode: slider
+
+sync_sparkyfitness_now:
+  name: Sync SparkyFitness now
+  description: Trigger an immediate poll of the SparkyFitness food diary.
+
+clear_todays_food_log:
+  name: Clear today's food log
+  description: >-
+    Remove today's manually logged food entries. Entries synced from
+    SparkyFitness are not deleted upstream and will return on the next poll.

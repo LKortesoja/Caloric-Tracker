@@ -146,6 +146,110 @@ ATTR_BODY_FAT_PCT = "body_fat_pct"
 # Dispatcher signal (formatted with entry_id)
 SIGNAL_UPDATE = f"{DOMAIN}_update_{{}}"
 
+# ---------------------------------------------------------------------------
+# Nutrition intake & energy balance engine
+# ---------------------------------------------------------------------------
+
+# SparkyFitness connection
+CONF_SPARKY_ENABLED = "sparkyfitness_enabled"
+CONF_SPARKY_BASE_URL = "sparkyfitness_base_url"
+CONF_SPARKY_API_KEY = "sparkyfitness_api_key"
+CONF_SPARKY_USER_ID = "sparkyfitness_user_id"
+CONF_SPARKY_VERIFY_SSL = "verify_ssl"
+CONF_SPARKY_POLL_INTERVAL = "poll_interval_minutes"
+CONF_SPARKY_PUSH_EXERCISE = "sparkyfitness_push_exercise"
+CONF_ENABLE_MANUAL_ENTRY = "enable_manual_entry"
+
+DEFAULT_SPARKY_POLL_INTERVAL = 15
+SPARKY_POLL_INTERVAL_MIN = 5
+SPARKY_POLL_INTERVAL_MAX = 120
+
+# SparkyFitness endpoint paths. Centralized so instances with a diverging
+# API layout only need edits here (schema mapping lives in sparkyfitness.py).
+SPARKY_FOOD_DIARY_PATH = "/api/food-entries"
+SPARKY_EXERCISE_PATH = "/api/exercise-entries"
+
+SPARKY_STALE_HOURS = 6  # unreachable this long -> incomplete_logging
+
+# Nutrition goals
+CONF_WEIGHT_GOAL_MODE = "weight_goal_mode"
+WEIGHT_GOAL_LOSS = "loss"
+WEIGHT_GOAL_MAINTENANCE = "maintenance"
+WEIGHT_GOAL_GAIN = "gain"
+WEIGHT_GOAL_MODES = [WEIGHT_GOAL_LOSS, WEIGHT_GOAL_MAINTENANCE, WEIGHT_GOAL_GAIN]
+
+CONF_TARGET_DAILY_DEFICIT = "target_daily_deficit_kcal"
+DEFAULT_TARGET_DAILY_DEFICIT = 500
+
+CONF_MIN_INTAKE_FLOOR = "minimum_intake_floor_kcal"
+INTAKE_FLOOR_FEMALE = 1200
+INTAKE_FLOOR_MALE = 1500
+
+CONF_PROTEIN_BASIS = "protein_target_basis"
+PROTEIN_BASIS_TBW = "total_body_weight"
+PROTEIN_BASIS_FFM = "fat_free_mass"
+PROTEIN_BASIS_ABSOLUTE = "absolute_grams"
+PROTEIN_BASES = [PROTEIN_BASIS_TBW, PROTEIN_BASIS_FFM, PROTEIN_BASIS_ABSOLUTE]
+
+CONF_PROTEIN_G_PER_KG = "protein_target_g_per_kg"
+DEFAULT_PROTEIN_G_PER_KG = 1.4
+CONF_PROTEIN_G_PER_KG_FFM = "protein_target_g_per_kg_ffm"
+DEFAULT_PROTEIN_G_PER_KG_FFM = 1.5
+CONF_PROTEIN_ABSOLUTE_G = "protein_target_absolute_g"
+DEFAULT_PROTEIN_ABSOLUTE_G = 100
+CONF_PER_MEAL_PROTEIN_G = "per_meal_protein_target_g"
+DEFAULT_PER_MEAL_PROTEIN_G = 28
+
+CONF_TEF_MODE = "tef_calculation_mode"
+TEF_MODE_FLAT = "flat_10_percent"
+TEF_MODE_MACRO = "macronutrient_specific"
+TEF_MODES = [TEF_MODE_MACRO, TEF_MODE_FLAT]
+
+CONF_PROTEIN_CORRECTION_PCT = "protein_underreporting_correction_pct"
+DEFAULT_PROTEIN_CORRECTION_PCT = 0
+
+CONF_ADAPTIVE_THERMO = "adaptive_thermogenesis_enabled"
+CONF_DEFICIT_CUTOFF_HOUR = "deficit_cutoff_hour"
+DEFAULT_DEFICIT_CUTOFF_HOUR = 20
+CONF_DYNAMIC_RMR_ENTITY = "dynamic_rmr_entity"
+DYNAMIC_RMR_MAX_AGE_HOURS = 24
+
+# Thermic effect of food coefficients (fraction of macro energy).
+TEF_PROTEIN_COEFFICIENT = 0.25
+TEF_CARB_COEFFICIENT = 0.075
+TEF_FAT_COEFFICIENT = 0.02
+KCAL_PER_G_PROTEIN = 4
+KCAL_PER_G_CARB = 4
+KCAL_PER_G_FAT = 9
+TEF_FLAT_FRACTION = 0.10
+TEF_MACRO_COVERAGE_MIN = 0.80  # fall back to flat below this coverage
+
+# Deficit classification bands (kcal/day of deficit).
+DEFICIT_MINIMAL_MAX = 249
+DEFICIT_GUIDELINE_MAX = 750
+DEFICIT_AGGRESSIVE_MAX = 1000
+
+INCOMPLETE_INTAKE_THRESHOLD_KCAL = 500
+IMPLAUSIBLE_INTAKE_KCAL = 10000
+IMPLAUSIBLE_PROTEIN_G = 500
+
+PROTEIN_CRITICAL_LOW_G_PER_KG = 0.5
+PROTEIN_HIGH_ADVISORY_G_PER_KG = 2.0
+
+# Meal buckets for timestamp inference when SparkyFitness omits the meal.
+MEAL_BREAKFAST = "breakfast"
+MEAL_LUNCH = "lunch"
+MEAL_DINNER = "dinner"
+MEAL_SNACK = "snack"
+MEAL_UNKNOWN = "unknown"
+
+# Extra services
+SERVICE_LOG_FOOD = "log_food"
+SERVICE_SET_PROTEIN_TARGET = "set_protein_target"
+SERVICE_SET_DEFICIT_TARGET = "set_deficit_target"
+SERVICE_SYNC_SPARKYFITNESS = "sync_sparkyfitness_now"
+SERVICE_CLEAR_FOOD_LOG = "clear_todays_food_log"
+
 # 2011 Compendium of Physical Activities MET values.
 MET_VALUES: dict[str, float] = {
     "walking_slow_2mph": 2.5,

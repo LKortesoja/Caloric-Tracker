@@ -15,18 +15,74 @@ from homeassistant.components import persistent_notification
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import STATE_UNAVAILABLE, STATE_UNKNOWN
 from homeassistant.core import Event, HomeAssistant, callback
+from homeassistant.exceptions import ConfigEntryAuthFailed
+from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_change,
 )
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.update_coordinator import (
+    DataUpdateCoordinator,
+    UpdateFailed,
+)
 from homeassistant.util import dt as dt_util
 
 from calendar import monthrange
 
 from . import calculator as calc
+from . import energy_balance as eb
 from . import recommender
+from .sparkyfitness import (
+    SparkyFitnessAuthError,
+    SparkyFitnessClient,
+    SparkyFitnessError,
+    exercise_external_id,
+)
+from .const import (
+    CONF_ADAPTIVE_THERMO,
+    CONF_DEFICIT_CUTOFF_HOUR,
+    CONF_DYNAMIC_RMR_ENTITY,
+    CONF_ENABLE_MANUAL_ENTRY,
+    CONF_MIN_INTAKE_FLOOR,
+    CONF_PER_MEAL_PROTEIN_G,
+    CONF_PROTEIN_ABSOLUTE_G,
+    CONF_PROTEIN_BASIS,
+    CONF_PROTEIN_CORRECTION_PCT,
+    CONF_PROTEIN_G_PER_KG,
+    CONF_PROTEIN_G_PER_KG_FFM,
+    CONF_SPARKY_API_KEY,
+    CONF_SPARKY_BASE_URL,
+    CONF_SPARKY_ENABLED,
+    CONF_SPARKY_POLL_INTERVAL,
+    CONF_SPARKY_PUSH_EXERCISE,
+    CONF_SPARKY_USER_ID,
+    CONF_SPARKY_VERIFY_SSL,
+    CONF_TARGET_DAILY_DEFICIT,
+    CONF_TEF_MODE,
+    CONF_WEIGHT_GOAL_MODE,
+    DEFAULT_DEFICIT_CUTOFF_HOUR,
+    DEFAULT_PER_MEAL_PROTEIN_G,
+    DEFAULT_PROTEIN_ABSOLUTE_G,
+    DEFAULT_PROTEIN_CORRECTION_PCT,
+    DEFAULT_PROTEIN_G_PER_KG,
+    DEFAULT_PROTEIN_G_PER_KG_FFM,
+    DEFAULT_SPARKY_POLL_INTERVAL,
+    DEFAULT_TARGET_DAILY_DEFICIT,
+    DYNAMIC_RMR_MAX_AGE_HOURS,
+    IMPLAUSIBLE_INTAKE_KCAL,
+    IMPLAUSIBLE_PROTEIN_G,
+    INTAKE_FLOOR_FEMALE,
+    INTAKE_FLOOR_MALE,
+    PROTEIN_BASIS_TBW,
+    SEX_MALE,
+    SPARKY_STALE_HOURS,
+    TEF_MODE_MACRO,
+    WEIGHT_GOAL_LOSS,
+    WEIGHT_GOAL_MAINTENANCE,
+)
 from .const import (
     ACTIVITY_LEVELS,
     BODY_FAT_MAX,
@@ -141,6 +197,19 @@ class CalorieTrackerCoordinator:
         self._peloton_workout_active = False
         self._stale_notified = False
 
+        # Nutrition intake state
+        self.sparky_entries: list[dict[str, Any]] = []
+        self.manual_food_entries: list[dict[str, Any]] = []
+        self.sparky_connected: bool = False
+        self.sparky_last_success: datetime | None = None
+        self.pushed_session_ids: list[str] = []
+        self.baseline_weight_kg: float | None = None
+        self.intake_implausible: bool = False
+        self._floor_notified_date: str | None = None
+        self._dynamic_rmr_stale_logged = False
+        self._sparky_client: SparkyFitnessClient | None = None
+        self.sparky_coordinator: SparkyIntakeCoordinator | None = None
+
     # ------------------------------------------------------------------
     # Config access (options override data)
     # ------------------------------------------------------------------
@@ -180,6 +249,46 @@ class CalorieTrackerCoordinator:
 
         if self._conf(CONF_PELOTON_ENABLED):
             self._subscribe_peloton_entities()
+
+        if dynamic_rmr_entity := self._conf(CONF_DYNAMIC_RMR_ENTITY):
+            self._unsubscribers.append(
+                async_track_state_change_event(
+                    self.hass, [dynamic_rmr_entity], self._handle_generic_recalc
+                )
+            )
+
+        if self._conf(CONF_SPARKY_ENABLED):
+            self._sparky_client = SparkyFitnessClient(
+                session=async_get_clientsession(
+                    self.hass, verify_ssl=self._conf(CONF_SPARKY_VERIFY_SSL, True)
+                ),
+                base_url=self._conf(CONF_SPARKY_BASE_URL, ""),
+                api_key=self._conf(CONF_SPARKY_API_KEY, ""),
+                user_id=self._conf(CONF_SPARKY_USER_ID) or None,
+                verify_ssl=self._conf(CONF_SPARKY_VERIFY_SSL, True),
+            )
+            self.sparky_coordinator = SparkyIntakeCoordinator(
+                self.hass,
+                self,
+                int(
+                    self._conf(
+                        CONF_SPARKY_POLL_INTERVAL, DEFAULT_SPARKY_POLL_INTERVAL
+                    )
+                ),
+            )
+            # A listener is required for DataUpdateCoordinator to keep polling.
+            self._unsubscribers.append(
+                self.sparky_coordinator.async_add_listener(lambda: None)
+            )
+            await self.sparky_coordinator.async_refresh()
+
+        if (
+            self._conf(CONF_ADAPTIVE_THERMO)
+            and self.baseline_weight_kg is None
+            and self.weight_kg is not None
+        ):
+            # First-seen weight anchors the adaptive-thermogenesis correction.
+            self.baseline_weight_kg = self.weight_kg
 
         # Midnight reset in the Home Assistant local timezone.
         self._unsubscribers.append(
@@ -239,6 +348,14 @@ class CalorieTrackerCoordinator:
             for reading in data.get("weight_readings", [])
             if (parsed_ts := dt_util.parse_datetime(reading["ts"])) is not None
         ]
+        # Cached intake so a restart during an outage does not zero the day.
+        self.sparky_entries = data.get("sparky_entries", [])
+        self.manual_food_entries = data.get("manual_food_entries", [])
+        self.pushed_session_ids = data.get("pushed_session_ids", [])
+        self.baseline_weight_kg = data.get("baseline_weight_kg")
+        self._floor_notified_date = data.get("floor_notified_date")
+        if last_success := data.get("sparky_last_success"):
+            self.sparky_last_success = dt_util.parse_datetime(last_success)
 
     async def _async_save(self) -> None:
         await self._store.async_save(self._as_dict())
@@ -267,6 +384,14 @@ class CalorieTrackerCoordinator:
             "weight_readings": [
                 {"ts": ts.isoformat(), "kg": kg} for ts, kg in self.weight_readings
             ],
+            "sparky_entries": self.sparky_entries,
+            "manual_food_entries": self.manual_food_entries,
+            "pushed_session_ids": self.pushed_session_ids[-200:],
+            "baseline_weight_kg": self.baseline_weight_kg,
+            "floor_notified_date": self._floor_notified_date,
+            "sparky_last_success": self.sparky_last_success.isoformat()
+            if self.sparky_last_success
+            else None,
         }
 
     # ------------------------------------------------------------------
@@ -340,6 +465,11 @@ class CalorieTrackerCoordinator:
         except (TypeError, ValueError):
             return None, None
         return value, new_state.attributes.get("unit_of_measurement")
+
+    @callback
+    def _handle_generic_recalc(self, _event: Event) -> None:
+        """State change on an auxiliary entity (e.g. dynamic RMR device)."""
+        self.async_update_listeners()
 
     @callback
     def _handle_weight_event(self, event: Event) -> None:
@@ -618,6 +748,7 @@ class CalorieTrackerCoordinator:
                 "timestamp": dt_util.now().isoformat(),
             }
         )
+        self._maybe_push_exercise(self.sessions[-1])
         self._schedule_save()
         self.async_update_listeners()
 
@@ -667,8 +798,31 @@ class CalorieTrackerCoordinator:
                 "timestamp": dt_util.now().isoformat(),
             }
         )
+        self._maybe_push_exercise(self.sessions[-1])
         self._schedule_save()
         self.async_update_listeners()
+
+    def _maybe_push_exercise(self, session: dict[str, Any]) -> None:
+        """Queue a write-back of a completed session to SparkyFitness."""
+        if self._sparky_client is None or not self._conf(
+            CONF_SPARKY_PUSH_EXERCISE, True
+        ):
+            return
+        external_id = exercise_external_id(session)
+        if external_id in self.pushed_session_ids:
+            return
+        self.hass.async_create_task(self._async_push_exercise(session, external_id))
+
+    async def _async_push_exercise(
+        self, session: dict[str, Any], external_id: str
+    ) -> None:
+        try:
+            await self._sparky_client.async_push_exercise(session)
+        except SparkyFitnessError as err:
+            _LOGGER.warning("Could not push exercise to SparkyFitness: %s", err)
+            return
+        self.pushed_session_ids.append(external_id)
+        self._schedule_save()
 
     def set_correction_factor(self, factor: float) -> None:
         self.correction_factor = calc.clamp_correction_factor(factor)
@@ -716,9 +870,15 @@ class CalorieTrackerCoordinator:
         if self.last_reset != today:
             self._archive_day(self.last_reset)
         self.sessions = []
+        self.sparky_entries = []
+        self.manual_food_entries = []
+        self.intake_implausible = False
         self.last_reset = today
         self._check_staleness()
         await self._async_save()
+        if self.sparky_coordinator is not None:
+            # Fetch the new day promptly rather than waiting a full interval.
+            await self.sparky_coordinator.async_request_refresh()
         self.async_update_listeners()
 
     def _archive_day(self, day: date) -> None:
@@ -729,6 +889,19 @@ class CalorieTrackerCoordinator:
             "tdee": round(self.tdee, 1),
             "sessions": self.exercise_count,
             **self._session_aggregates(self.sessions),
+            "intake_kcal": round(self.intake_calories, 1),
+            "protein_g": round(self.intake_protein_g, 1),
+            "protein_g_per_kg": eb.protein_g_per_kg(
+                self.intake_protein_g, self.effective_weight_kg
+            ),
+            "energy_balance": round(self.energy_balance_kcal, 1)
+            if self.intake_entry_count
+            else None,
+            "below_floor": bool(
+                self.intake_entry_count
+                and self.intake_calories < self.intake_floor_kcal
+            ),
+            "intake_complete": self._day_intake_complete(),
         }
         cutoff = (dt_util.now().date() - timedelta(days=HISTORY_RETENTION_DAYS)).isoformat()
         self.history = {d: v for d, v in self.history.items() if d >= cutoff}
@@ -852,8 +1025,46 @@ class CalorieTrackerCoordinator:
         return equation
 
     @property
+    def device_rmr(self) -> float | None:
+        """RMR from a mapped clinical measurement device, if fresh (<24 h)."""
+        entity_id = self._conf(CONF_DYNAMIC_RMR_ENTITY)
+        if not entity_id:
+            return None
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
+            return None
+        age = dt_util.now() - state.last_updated
+        if age > timedelta(hours=DYNAMIC_RMR_MAX_AGE_HOURS):
+            if not self._dynamic_rmr_stale_logged:
+                self._dynamic_rmr_stale_logged = True
+                _LOGGER.warning(
+                    "Dynamic RMR sensor %s is stale (%.0f h old); falling back "
+                    "to the %s equation",
+                    entity_id,
+                    age.total_seconds() / 3600,
+                    self._conf(CONF_RMR_EQUATION, DEFAULT_RMR_EQUATION),
+                )
+            return None
+        self._dynamic_rmr_stale_logged = False
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def rmr_source(self) -> str:
+        if self.device_rmr is not None:
+            return "evidence_based_device"
+        return self.rmr_equation
+
+    @property
     def rmr(self) -> float:
-        """Resting Metabolic Rate in kcal/day (0.0 when weight is missing)."""
+        """Resting Metabolic Rate in kcal/day (0.0 when weight is missing).
+
+        A fresh dynamic RMR device reading bypasses every static equation.
+        """
+        if (device_value := self.device_rmr) is not None:
+            return device_value
         weight = self.effective_weight_kg
         height = self._conf(CONF_HEIGHT_CM)
         age = self.age
@@ -894,7 +1105,33 @@ class CalorieTrackerCoordinator:
 
     @property
     def tdee(self) -> float:
-        return self.base_daily_kcal + self.exercise_net_kcal
+        """TDEE with explicit TEF when intake is logged, PAL-implicit otherwise.
+
+        With logged food, the PAL multiplier's assumed TEF share is removed
+        and the macro-computed TEF added back so TEF is never double-counted:
+        TDEE = (RMR x PAL - assumed TEF) + actual TEF + net exercise.
+        """
+        if self.intake_entry_count > 0:
+            base = eb.base_expenditure_without_tef(
+                self.rmr, self.pal_factor, self.tef_percentage / 100
+            )
+            total = base + self.tef_result.tef_kcal + self.exercise_net_kcal
+        else:
+            total = self.base_daily_kcal + self.exercise_net_kcal
+        if self._conf(CONF_ADAPTIVE_THERMO):
+            total, _ = eb.apply_adaptive_thermogenesis(
+                total, self.baseline_weight_kg, self.effective_weight_kg
+            )
+        return total
+
+    @property
+    def tdee_calculation_mode(self) -> str:
+        parts = [self.rmr_source]
+        if self.intake_entry_count > 0:
+            parts.append("explicit_tef")
+        if self._conf(CONF_ADAPTIVE_THERMO):
+            parts.append("adaptive_thermogenesis")
+        return "+".join(parts)
 
     def _exercise_net_average(self, window_days: int) -> tuple[float, int]:
         history = {
@@ -1068,11 +1305,410 @@ class CalorieTrackerCoordinator:
                     DEFAULT_POLARIZATION_THRESHOLD_PCT,
                 )
             ),
+            rolling_7d_deficit=self.rolling_7d_energy_balance[0],
+            below_floor_days_7d=self.below_floor_days_7d,
+            incomplete_logging=self.incomplete_logging,
+            protein_inadequate=self.protein_adequacy[1] == "inadequate",
+            energy_surplus_kcal=self.energy_balance_kcal
+            if self.intake_entry_count and self.energy_balance_kcal > 0
+            else None,
+            weight_goal_mode=self._conf(
+                CONF_WEIGHT_GOAL_MODE, WEIGHT_GOAL_MAINTENANCE
+            ),
+            nutrition_connected=self.sparky_connected
+            if self._conf(CONF_SPARKY_ENABLED)
+            else bool(self.manual_food_entries),
         )
 
     @property
     def recommendation(self) -> recommender.Recommendation:
         return recommender.evaluate(self._training_snapshot())
+
+    # ------------------------------------------------------------------
+    # Nutrition intake & energy balance
+    # ------------------------------------------------------------------
+
+    @property
+    def food_entries(self) -> list[dict[str, Any]]:
+        return self.sparky_entries + self.manual_food_entries
+
+    @property
+    def intake_entry_count(self) -> int:
+        return len(self.food_entries)
+
+    @property
+    def manual_entry_count(self) -> int:
+        return len(self.manual_food_entries)
+
+    @property
+    def intake_source(self) -> str:
+        if self.sparky_entries and self.manual_food_entries:
+            return "mixed"
+        if self.manual_food_entries:
+            return "manual"
+        return "sparkyfitness"
+
+    def _intake_sum(self, key: str) -> float:
+        """Sum a nutrient over entries where it is known (None never coerced)."""
+        return sum(
+            value
+            for entry in self.food_entries
+            if (value := entry.get(key)) is not None
+        )
+
+    @property
+    def intake_calories(self) -> float:
+        return self._intake_sum("calories")
+
+    @property
+    def intake_protein_g(self) -> float:
+        return self._intake_sum("protein_g")
+
+    @property
+    def intake_protein_g_corrected(self) -> float:
+        return eb.apply_protein_correction(
+            self.intake_protein_g,
+            float(
+                self._conf(
+                    CONF_PROTEIN_CORRECTION_PCT, DEFAULT_PROTEIN_CORRECTION_PCT
+                )
+            ),
+        )
+
+    @property
+    def intake_carbs_g(self) -> float:
+        return self._intake_sum("carbs_g")
+
+    @property
+    def intake_fat_g(self) -> float:
+        return self._intake_sum("fat_g")
+
+    @property
+    def intake_fiber_g(self) -> float:
+        return self._intake_sum("fiber_g")
+
+    @property
+    def macros_complete(self) -> bool:
+        return all(
+            entry.get("protein_g") is not None
+            and entry.get("carbs_g") is not None
+            and entry.get("fat_g") is not None
+            for entry in self.food_entries
+        )
+
+    @property
+    def macro_coverage(self) -> float:
+        """Fraction of today's calories from entries with complete macros."""
+        total = self.intake_calories
+        if total <= 0:
+            return 1.0
+        covered = sum(
+            entry.get("calories") or 0.0
+            for entry in self.food_entries
+            if entry.get("protein_g") is not None
+            and entry.get("carbs_g") is not None
+            and entry.get("fat_g") is not None
+        )
+        return covered / total
+
+    @property
+    def tef_result(self) -> eb.TefResult:
+        return eb.calculate_tef(
+            protein_g=self.intake_protein_g,
+            carbs_g=self.intake_carbs_g,
+            fat_g=self.intake_fat_g,
+            total_intake_kcal=self.intake_calories,
+            macro_coverage=self.macro_coverage,
+            mode=self._conf(CONF_TEF_MODE, TEF_MODE_MACRO),
+        )
+
+    @property
+    def intake_floor_kcal(self) -> int:
+        configured = self._conf(CONF_MIN_INTAKE_FLOOR)
+        if configured:
+            return int(configured)
+        return (
+            INTAKE_FLOOR_MALE
+            if self._conf(CONF_SEX) == SEX_MALE
+            else INTAKE_FLOOR_FEMALE
+        )
+
+    @property
+    def protein_target(self) -> tuple[float | None, str, float | None]:
+        """(target_g, basis_used, basis_weight_kg) from the configured basis."""
+        g_per_kg = self._conf(CONF_PROTEIN_G_PER_KG)
+        if g_per_kg is None:
+            # Legacy installs configured protein_multiplier instead.
+            g_per_kg = self._conf(CONF_PROTEIN_MULTIPLIER, DEFAULT_PROTEIN_G_PER_KG)
+        return eb.resolve_protein_target(
+            basis=self._conf(CONF_PROTEIN_BASIS, PROTEIN_BASIS_TBW),
+            weight_kg=self.effective_weight_kg,
+            fat_free_mass_kg=self.fat_free_mass_kg,
+            g_per_kg=float(g_per_kg),
+            g_per_kg_ffm=float(
+                self._conf(CONF_PROTEIN_G_PER_KG_FFM, DEFAULT_PROTEIN_G_PER_KG_FFM)
+            ),
+            absolute_g=float(
+                self._conf(CONF_PROTEIN_ABSOLUTE_G, DEFAULT_PROTEIN_ABSOLUTE_G)
+            ),
+        )
+
+    @property
+    def protein_adequacy(self) -> tuple[float | None, str, bool]:
+        target_g, _, _ = self.protein_target
+        return eb.assess_protein_adequacy(
+            self.intake_protein_g, target_g, self.effective_weight_kg
+        )
+
+    @property
+    def energy_balance_kcal(self) -> float:
+        return eb.calculate_energy_balance(self.intake_calories, self.tdee)
+
+    @property
+    def sparky_stale(self) -> bool:
+        """SparkyFitness unreachable beyond the staleness window."""
+        if not self._conf(CONF_SPARKY_ENABLED):
+            return False
+        if self.sparky_connected:
+            return False
+        if self.sparky_last_success is None:
+            return True
+        return dt_util.now() - self.sparky_last_success > timedelta(
+            hours=SPARKY_STALE_HOURS
+        )
+
+    @property
+    def deficit_cutoff_hour(self) -> int:
+        return int(
+            self._conf(CONF_DEFICIT_CUTOFF_HOUR, DEFAULT_DEFICIT_CUTOFF_HOUR)
+        )
+
+    @property
+    def incomplete_logging(self) -> bool:
+        if self.intake_implausible:
+            return True
+        return eb.detect_incomplete_logging(
+            local_hour=dt_util.now().hour,
+            total_intake_kcal=self.intake_calories,
+            cutoff_hour=self.deficit_cutoff_hour,
+            source_stale=self.sparky_stale,
+            macros_complete=self.macros_complete,
+        )
+
+    @property
+    def deficit_classification(self) -> str:
+        """Band label, gated on the end-of-day cutoff and data completeness."""
+        if dt_util.now().hour < self.deficit_cutoff_hour:
+            return "in_progress"
+        return eb.classify_deficit(self.energy_balance_kcal, self.incomplete_logging)
+
+    @property
+    def energy_balance_is_aggressive(self) -> bool:
+        return eb.is_aggressive_deficit(self.deficit_classification)
+
+    @property
+    def below_intake_floor(self) -> bool:
+        return (
+            dt_util.now().hour >= self.deficit_cutoff_hour
+            and not self.incomplete_logging
+            and self.intake_calories < self.intake_floor_kcal
+        )
+
+    def _day_intake_complete(self) -> bool:
+        """Whether the (finished) day's intake data supports a deficit verdict."""
+        return (
+            not self.intake_implausible
+            and not self.sparky_stale
+            and self.macros_complete
+            and self.intake_calories >= eb.INCOMPLETE_INTAKE_THRESHOLD_KCAL
+        )
+
+    @property
+    def per_meal_breakdown(self) -> dict[str, float]:
+        breakdown: dict[str, float] = {}
+        for entry in self.food_entries:
+            if (protein := entry.get("protein_g")) is not None:
+                meal = entry.get("meal") or "unknown"
+                breakdown[meal] = breakdown.get(meal, 0.0) + protein
+        return breakdown
+
+    @property
+    def meals_meeting_protein_target(self) -> int:
+        target = float(
+            self._conf(CONF_PER_MEAL_PROTEIN_G, DEFAULT_PER_MEAL_PROTEIN_G)
+        )
+        return sum(
+            1 for protein in self.per_meal_breakdown.values() if protein >= target
+        )
+
+    def _complete_day_values(self, key: str, window_days: int) -> list[float]:
+        today = dt_util.now().date()
+        values = []
+        for offset in range(1, window_days + 1):
+            entry = self.history.get((today - timedelta(days=offset)).isoformat())
+            if entry and entry.get("intake_complete") and entry.get(key) is not None:
+                values.append(entry[key])
+        return values
+
+    @property
+    def rolling_7d_energy_balance(self) -> tuple[float | None, int]:
+        """(mean daily energy balance over complete days, days_with_complete_data)."""
+        values = self._complete_day_values("energy_balance", 7)
+        if not values:
+            return None, 0
+        return sum(values) / len(values), len(values)
+
+    @property
+    def below_floor_days_7d(self) -> int:
+        today = dt_util.now().date()
+        return sum(
+            1
+            for offset in range(1, 8)
+            if (entry := self.history.get((today - timedelta(days=offset)).isoformat()))
+            and entry.get("below_floor")
+        )
+
+    @property
+    def rolling_7d_protein_g_per_kg(self) -> float | None:
+        values = self._complete_day_values("protein_g_per_kg", 7)
+        if not values:
+            return None
+        return sum(values) / len(values)
+
+    @property
+    def high_protein_advisory(self) -> bool:
+        return eb.is_high_protein_advisory(self.rolling_7d_protein_g_per_kg)
+
+    def set_sparky_entries(self, entries: list[dict[str, Any]]) -> None:
+        """Replace today's SparkyFitness entries (poll result)."""
+        self.sparky_entries = entries
+        self._check_intake_plausibility()
+        self._maybe_notify_below_floor()
+        self._schedule_save()
+        self.async_update_listeners()
+
+    def _check_intake_plausibility(self) -> None:
+        implausible = (
+            self.intake_calories > IMPLAUSIBLE_INTAKE_KCAL
+            or self.intake_protein_g > IMPLAUSIBLE_PROTEIN_G
+        )
+        if implausible and not self.intake_implausible:
+            _LOGGER.warning(
+                "Implausible intake for today (%.0f kcal, %.0f g protein); "
+                "deficit classification suspended",
+                self.intake_calories,
+                self.intake_protein_g,
+            )
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                "implausible_intake",
+                is_fixable=False,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="implausible_intake",
+            )
+        self.intake_implausible = implausible
+
+    def _maybe_notify_below_floor(self) -> None:
+        today_iso = dt_util.now().date().isoformat()
+        if self._floor_notified_date == today_iso or not self.below_intake_floor:
+            return
+        self._floor_notified_date = today_iso
+        persistent_notification.async_create(
+            self.hass,
+            f"Today's intake ({self.intake_calories:.0f} kcal) is below the "
+            f"configured minimum of {self.intake_floor_kcal} kcal. Intake below "
+            "guideline floors should be medically supervised.",
+            title="Calorie Tracker: intake below minimum floor",
+            notification_id=f"{DOMAIN}_below_floor",
+        )
+
+    def log_food(
+        self,
+        food_name: str,
+        calories: float,
+        protein_g: float | None = None,
+        carbs_g: float | None = None,
+        fat_g: float | None = None,
+        fiber_g: float | None = None,
+        meal: str | None = None,
+    ) -> None:
+        """Fallback manual food entry for when SparkyFitness is offline."""
+        if not self._conf(CONF_ENABLE_MANUAL_ENTRY, True):
+            raise ValueError("Manual food entry is disabled in the configuration")
+        if calories > IMPLAUSIBLE_INTAKE_KCAL:
+            raise ValueError(f"Implausible calorie value: {calories}")
+        if protein_g is not None and protein_g > IMPLAUSIBLE_PROTEIN_G:
+            raise ValueError(f"Implausible protein value: {protein_g}")
+        now = dt_util.now()
+        meal_inferred = meal is None
+        self.manual_food_entries.append(
+            {
+                "entry_id": f"manual-{now.timestamp():.0f}",
+                "timestamp": now.isoformat(),
+                "meal": meal or eb.infer_meal_from_hour(now.hour),
+                "meal_inferred": meal_inferred,
+                "food_name": food_name,
+                "calories": calories,
+                "protein_g": protein_g,
+                "carbs_g": carbs_g,
+                "fat_g": fat_g,
+                "fiber_g": fiber_g,
+            }
+        )
+        self._maybe_notify_below_floor()
+        self._schedule_save()
+        self.async_update_listeners()
+
+    def clear_todays_food_log(self) -> None:
+        """Clear manual entries (SparkyFitness entries return on next poll)."""
+        self.manual_food_entries = []
+        self._schedule_save()
+        self.async_update_listeners()
+
+
+class SparkyIntakeCoordinator(DataUpdateCoordinator[None]):
+    """Polls the SparkyFitness food diary with exponential backoff."""
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        main: CalorieTrackerCoordinator,
+        interval_minutes: int,
+    ) -> None:
+        self._base_interval = timedelta(minutes=interval_minutes)
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_sparkyfitness",
+            update_interval=self._base_interval,
+        )
+        self.main = main
+
+    async def _async_update_data(self) -> None:
+        client = self.main._sparky_client
+        if client is None:
+            return
+        try:
+            entries = await client.async_get_food_diary(
+                dt_util.now().date(), dt_util.get_default_time_zone()
+            )
+        except SparkyFitnessAuthError as err:
+            self.main.sparky_connected = False
+            raise ConfigEntryAuthFailed(str(err)) from err
+        except SparkyFitnessError as err:
+            self.main.sparky_connected = False
+            # Exponential backoff, capped at 8x the configured interval.
+            if self.update_interval is not None:
+                self.update_interval = min(
+                    self.update_interval * 2, self._base_interval * 8
+                )
+            self.main.async_update_listeners()
+            raise UpdateFailed(str(err)) from err
+        self.update_interval = self._base_interval
+        self.main.sparky_connected = True
+        self.main.sparky_last_success = dt_util.now()
+        self.main.set_sparky_entries([entry.as_dict() for entry in entries])
 
     @property
     def protein_target_g(self) -> float | None:

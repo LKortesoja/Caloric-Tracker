@@ -17,20 +17,46 @@ from .const import (
     ATTR_FACTOR,
     ATTR_WEIGHT,
     ATTR_WEIGHT_UNIT,
+    CONF_PROTEIN_ABSOLUTE_G,
+    CONF_PROTEIN_BASIS,
+    CONF_PROTEIN_G_PER_KG,
+    CONF_PROTEIN_G_PER_KG_FFM,
+    CONF_TARGET_DAILY_DEFICIT,
     CORRECTION_FACTOR_MAX,
     CORRECTION_FACTOR_MIN,
     DISPLAY_UNIT_KG,
     DISPLAY_UNIT_LB,
     DOMAIN,
+    PROTEIN_BASES,
+    PROTEIN_BASIS_ABSOLUTE,
+    PROTEIN_BASIS_FFM,
+    SERVICE_CLEAR_FOOD_LOG,
     SERVICE_LOG_BODY_FAT,
     SERVICE_LOG_EXERCISE,
+    SERVICE_LOG_FOOD,
     SERVICE_LOG_WEIGHT,
     SERVICE_RESET_DAILY,
     SERVICE_SET_CORRECTION_FACTOR,
+    SERVICE_SET_DEFICIT_TARGET,
+    SERVICE_SET_PROTEIN_TARGET,
+    SERVICE_SYNC_SPARKYFITNESS,
 )
 from .coordinator import CalorieTrackerCoordinator
 
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.SENSOR, Platform.BINARY_SENSOR]
+
+ALL_SERVICES = (
+    SERVICE_LOG_EXERCISE,
+    SERVICE_SET_CORRECTION_FACTOR,
+    SERVICE_LOG_WEIGHT,
+    SERVICE_LOG_BODY_FAT,
+    SERVICE_RESET_DAILY,
+    SERVICE_LOG_FOOD,
+    SERVICE_SET_PROTEIN_TARGET,
+    SERVICE_SET_DEFICIT_TARGET,
+    SERVICE_SYNC_SPARKYFITNESS,
+    SERVICE_CLEAR_FOOD_LOG,
+)
 
 LOG_EXERCISE_SCHEMA = vol.Schema(
     {
@@ -97,13 +123,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         coordinator: CalorieTrackerCoordinator = hass.data[DOMAIN].pop(entry.entry_id)
         await coordinator.async_unload()
         if not hass.data[DOMAIN]:
-            for service in (
-                SERVICE_LOG_EXERCISE,
-                SERVICE_SET_CORRECTION_FACTOR,
-                SERVICE_LOG_WEIGHT,
-                SERVICE_LOG_BODY_FAT,
-                SERVICE_RESET_DAILY,
-            ):
+            for service in ALL_SERVICES:
                 hass.services.async_remove(DOMAIN, service)
     return unload_ok
 
@@ -161,4 +181,113 @@ def _register_services(hass: HomeAssistant) -> None:
     hass.services.async_register(
         DOMAIN, SERVICE_LOG_BODY_FAT, handle_log_body_fat, schema=LOG_BODY_FAT_SCHEMA
     )
+    async def handle_log_food(call: ServiceCall) -> None:
+        try:
+            _get_coordinator(hass).log_food(
+                food_name=call.data["food_name"],
+                calories=call.data["calories"],
+                protein_g=call.data.get("protein_g"),
+                carbs_g=call.data.get("carbs_g"),
+                fat_g=call.data.get("fat_g"),
+                fiber_g=call.data.get("fiber_g"),
+                meal=call.data.get("meal"),
+            )
+        except ValueError as err:
+            raise HomeAssistantError(str(err)) from err
+
+    async def handle_set_protein_target(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(hass)
+        entry = coordinator.entry
+        options = dict(entry.options)
+        basis = call.data.get("basis")
+        if basis:
+            options[CONF_PROTEIN_BASIS] = basis
+        else:
+            basis = options.get(
+                CONF_PROTEIN_BASIS, entry.data.get(CONF_PROTEIN_BASIS)
+            )
+        value = call.data["value"]
+        if basis == PROTEIN_BASIS_ABSOLUTE:
+            options[CONF_PROTEIN_ABSOLUTE_G] = value
+        elif basis == PROTEIN_BASIS_FFM:
+            options[CONF_PROTEIN_G_PER_KG_FFM] = value
+        else:
+            options[CONF_PROTEIN_G_PER_KG] = value
+        hass.config_entries.async_update_entry(entry, options=options)
+
+    async def handle_set_deficit_target(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(hass)
+        entry = coordinator.entry
+        options = dict(entry.options)
+        options[CONF_TARGET_DAILY_DEFICIT] = call.data["kcal"]
+        hass.config_entries.async_update_entry(entry, options=options)
+
+    async def handle_sync_sparkyfitness(call: ServiceCall) -> None:
+        coordinator = _get_coordinator(hass)
+        if coordinator.sparky_coordinator is None:
+            raise HomeAssistantError("SparkyFitness is not configured")
+        await coordinator.sparky_coordinator.async_request_refresh()
+
+    async def handle_clear_food_log(call: ServiceCall) -> None:
+        _get_coordinator(hass).clear_todays_food_log()
+
     hass.services.async_register(DOMAIN, SERVICE_RESET_DAILY, handle_reset_daily)
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LOG_FOOD,
+        handle_log_food,
+        schema=vol.Schema(
+            {
+                vol.Required("food_name"): str,
+                vol.Required("calories"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0, max=10000)
+                ),
+                vol.Optional("protein_g"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0, max=500)
+                ),
+                vol.Optional("carbs_g"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0, max=2000)
+                ),
+                vol.Optional("fat_g"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0, max=1000)
+                ),
+                vol.Optional("fiber_g"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0, max=300)
+                ),
+                vol.Optional("meal"): vol.In(
+                    ["breakfast", "lunch", "dinner", "snack"]
+                ),
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_PROTEIN_TARGET,
+        handle_set_protein_target,
+        schema=vol.Schema(
+            {
+                vol.Required("value"): vol.All(
+                    vol.Coerce(float), vol.Range(min=0.4, max=300)
+                ),
+                vol.Optional("basis"): vol.In(PROTEIN_BASES),
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_SET_DEFICIT_TARGET,
+        handle_set_deficit_target,
+        schema=vol.Schema(
+            {
+                vol.Required("kcal"): vol.All(
+                    vol.Coerce(int), vol.Range(min=0, max=1000)
+                ),
+            }
+        ),
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_SYNC_SPARKYFITNESS, handle_sync_sparkyfitness
+    )
+    hass.services.async_register(
+        DOMAIN, SERVICE_CLEAR_FOOD_LOG, handle_clear_food_log
+    )

@@ -190,6 +190,52 @@ Sessions are auto-classified from their activity name (strength / mobility /
 cycling / cardio). Map the Peloton distance entity (and log `distance` in
 `log_exercise`) to feed the monthly distance goal.
 
+## Nutrition intake & energy balance (SparkyFitness)
+
+Food intake is sourced exclusively from a self-hosted
+[SparkyFitness](https://github.com/CodeWithCJ/SparkyFitness) instance — no
+third-party food-database APIs. SparkyFitness resolves foods to nutrients at
+logging time; this integration performs **no** independent nutrient lookup,
+barcode scanning, or imputation (missing macros stay unknown, never zero).
+
+- **Polling** — the food diary is fetched on a configurable interval (default
+  15 min) with exponential backoff on failure. Intake sensors go *unavailable*
+  (not zero) if the source is down with no cached data; the last successful
+  day is cached so a restart during an outage does not wipe the day. Each poll
+  replaces the whole day, so mid-day edits and deletions upstream are honored.
+- **Write-back** — completed Peloton/manual workouts are pushed to
+  SparkyFitness with a stable external id, so reloads cannot create
+  duplicates. Toggleable in config.
+- **Manual fallback** — `calorie_tracker.log_food` records intake when the
+  instance is offline; manual entries are merged and counted separately
+  (`manual_entry_count`).
+- **TEF** — macronutrient-specific by default
+  (`protein·4·0.25 + carbs·4·0.075 + fat·9·0.02`), falling back to a flat 10%
+  (flagged `tef_estimated`) when macros cover <80% of the day's calories. The
+  PAL multiplier's assumed TEF share is subtracted before the explicit TEF is
+  added, so TEF is never double-counted in TDEE.
+- **Energy balance** — `intake − TDEE`, classified after a configurable
+  end-of-day cutoff (default 20:00) into surplus / minimal / guideline (250–750)
+  / aggressive (751–1000) / very aggressive (>1000). Incomplete logging
+  (source stale >6 h, missing macros, or <500 kcal after cutoff) yields
+  `insufficient_data` instead of a spurious deficit.
+- **Protein adequacy** — target from total body weight (default 1.4 g/kg),
+  fat-free mass (1.5 g/kg FFM), or absolute grams; bands at <80% / 80–99% /
+  100–120% / >120%, with a critical flag under 0.5 g/kg and an advisory when
+  the 7-day rolling intake is ≥2.0 g/kg.
+- **Recommendation integration** — a sustained 7-day deficit beyond
+  1000 kcal/day or ≥3 below-floor days in a week inserts an "Underfueling
+  Detected — Light Activity Only" tier into the workout engine (below
+  rest/ACWR, above strength/polarization). The engine reports status against
+  *your* targets only and never prescribes an intake.
+- **Dynamic RMR** — an optional clinical metabolic-device sensor overrides all
+  static RMR equations while its reading is <24 h old, with automatic
+  fallback and a logged warning when stale.
+
+> **Note on API paths:** SparkyFitness endpoint paths and payload mapping are
+> centralized in `const.py` / `sparkyfitness.py::normalize_entry`. If your
+> instance version uses a different layout, those are the only places to edit.
+
 ## Smart scale behavior
 
 - Weight updates trigger an immediate recalculation of RMR and all downstream
@@ -223,7 +269,36 @@ cycling / cardio). Map the Peloton distance entity (and log `distance` in
   of day. For best consistency, weigh at the same time daily (morning, fasted,
   after voiding).
 - **This integration is for personal wellness tracking only and is not a
-  medical device.**
+  medical device. It does not provide medical or nutritional advice.**
+  Caloric restriction below 1200 kcal/day (women) or 1500 kcal/day (men)
+  should be undertaken only under medical supervision.
+- Protein guidance differs between professional societies. A joint advisory
+  from the American College of Lifestyle Medicine, American Society for
+  Nutrition, Obesity Medicine Association, and The Obesity Society recommends
+  protein intake not fall below 0.4–0.5 g/kg/day and that prolonged intake at
+  or above 2 g/kg/day be avoided. The American Association of Clinical
+  Endocrinology states that intake >2 g/kg/day may not have adverse health
+  effects, with a tolerable upper limit around 3.5 g/kg/day. Users with
+  chronic kidney disease, liver disease, or who are pregnant should consult a
+  clinician before setting targets.
+- Protein targets based on total body weight can substantially overestimate
+  requirements in individuals with obesity. The fat-free mass basis
+  (1.5 g/kg FFM/day) may be more accurate but depends on bioelectrical
+  impedance data, which varies with hydration status and time of day.
+- All nutrition data quality is inherited from SparkyFitness. Accuracy depends
+  entirely on the food database entries and portion sizes recorded upstream.
+  Self-reported dietary intake is systematically underreported, and app-based
+  nutrient calculations have been shown to run lower than research-grade
+  dietary analysis software — protein in particular. Logged values should be
+  treated as a lower bound.
+- Energy expenditure falls disproportionately during weight loss (adaptive
+  thermogenesis). Predicted weight loss based on a fixed calories-per-pound
+  conversion overestimates actual results over time; this integration never
+  projects weight loss from a static 3500 kcal/lb rule, and the optional
+  adaptive-thermogenesis correction is a first-order approximation that is
+  not individually validated.
+- All targets are user-configured. The integration reports status against the
+  user's own settings and does not prescribe intake.
 
 ## Development
 

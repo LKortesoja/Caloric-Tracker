@@ -83,14 +83,67 @@
       "optional": {
         "title": "Optional settings",
         "data": {
-          "tef_percentage": "Thermic Effect of Food (%)"
+          "tef_percentage": "Thermic Effect of Food (%)",
+          "dynamic_rmr_entity": "Dynamic RMR sensor (optional)"
         },
         "data_description": {
-          "tef_percentage": "TEF is already included in the baseline activity multiplier; this value is stored for reference and displayed as a TDEE attribute."
+          "tef_percentage": "Assumed TEF share of the activity multiplier. When food is logged, this share is replaced by the macro-computed TEF so it is never double-counted.",
+          "dynamic_rmr_entity": "A clinical-grade metabolic device sensor. When it has reported within 24 hours it overrides all static RMR equations."
+        }
+      },
+      "sparkyfitness": {
+        "title": "SparkyFitness connection",
+        "description": "Connect your self-hosted SparkyFitness instance to sync food intake automatically. The API key is stored in the config entry, never logged, and redacted in diagnostics.",
+        "data": {
+          "sparkyfitness_enabled": "Enable SparkyFitness sync",
+          "sparkyfitness_base_url": "Base URL",
+          "sparkyfitness_api_key": "API key",
+          "sparkyfitness_user_id": "User ID (multi-user instances)",
+          "verify_ssl": "Verify SSL certificate",
+          "poll_interval_minutes": "Poll interval",
+          "sparkyfitness_push_exercise": "Push completed workouts to SparkyFitness",
+          "enable_manual_entry": "Allow manual food entry fallback"
+        }
+      },
+      "nutrition": {
+        "title": "Nutrition goals",
+        "description": "All targets are yours — the integration reports status against them and never prescribes an intake.",
+        "data": {
+          "weight_goal_mode": "Weight goal",
+          "target_daily_deficit_kcal": "Target daily deficit",
+          "minimum_intake_floor_kcal": "Minimum intake floor (blank = auto by sex)",
+          "protein_target_basis": "Protein target basis",
+          "protein_target_g_per_kg": "Protein target (g per kg body weight)",
+          "protein_target_g_per_kg_ffm": "Protein target (g per kg fat-free mass)",
+          "protein_target_absolute_g": "Protein target (absolute grams)",
+          "per_meal_protein_target_g": "Per-meal protein target",
+          "tef_calculation_mode": "TEF calculation mode",
+          "protein_underreporting_correction_pct": "Protein underreporting correction",
+          "deficit_cutoff_hour": "End-of-day cutoff hour",
+          "adaptive_thermogenesis_enabled": "Adaptive thermogenesis correction"
+        },
+        "data_description": {
+          "target_daily_deficit_kcal": "Guidelines recommend a 500-750 kcal/day deficit for weight reduction. Larger deficits reduce the protective effect of dietary protein on lean mass.",
+          "minimum_intake_floor_kcal": "Guideline-referenced minimums are 1200-1500 kcal/day for women and 1500-1800 kcal/day for men. Intake below this floor should be medically supervised.",
+          "protein_underreporting_correction_pct": "Optional. App-based food logs have been shown to underestimate protein relative to research-grade dietary analysis. Leave at 0 unless you have a reason to correct; the raw value is always kept.",
+          "deficit_cutoff_hour": "Deficit classification is suppressed before this local hour so a half-logged day is not reported as a huge deficit.",
+          "adaptive_thermogenesis_enabled": "First-order approximation only: reduces TDEE by up to 15% as weight is lost from your baseline. Not individually validated."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate SparkyFitness",
+        "description": "The stored API key was rejected. Enter a new key.",
+        "data": {
+          "sparkyfitness_api_key": "API key"
         }
       }
     },
     "error": {
+      "cannot_connect": "Cannot reach the SparkyFitness host. Check the URL and that the instance is running.",
+      "invalid_auth": "SparkyFitness rejected the API key.",
+      "ssl_error": "TLS certificate verification failed. Fix the certificate or disable SSL verification.",
+      "unexpected_schema": "Connected, but the response did not look like a SparkyFitness API. Check the base URL.",
+      "sparkyfitness_credentials_required": "Base URL and API key are required when SparkyFitness sync is enabled.",
       "weight_entity_required": "A weight entity is required when the smart scale is enabled.",
       "weight_required": "Enter a weight in the profile step or enable the smart scale.",
       "cunningham_requires_body_fat": "The Cunningham equation requires a body fat percentage or a mapped body fat entity.",
@@ -118,9 +171,24 @@
           "baseline_activity_level": "Baseline activity level",
           "weight_smoothing": "Weight smoothing",
           "scale_stale_threshold_days": "Stale data threshold (days)",
-          "tef_percentage": "Thermic Effect of Food (%)"
+          "tef_percentage": "Thermic Effect of Food (%)",
+          "weight_goal_mode": "Weight goal",
+          "target_daily_deficit_kcal": "Target daily deficit",
+          "protein_target_basis": "Protein target basis",
+          "protein_target_g_per_kg": "Protein target (g/kg)",
+          "tef_calculation_mode": "TEF calculation mode",
+          "protein_underreporting_correction_pct": "Protein underreporting correction",
+          "deficit_cutoff_hour": "End-of-day cutoff hour",
+          "adaptive_thermogenesis_enabled": "Adaptive thermogenesis correction",
+          "poll_interval_minutes": "SparkyFitness poll interval"
         }
       }
+    }
+  },
+  "issues": {
+    "implausible_intake": {
+      "title": "Implausible intake data for today",
+      "description": "Today's synced intake exceeds plausibility limits (>10,000 kcal or >500 g protein). Deficit classification is suspended until the upstream food log is corrected."
     }
   },
   "selector": {
@@ -170,6 +238,26 @@
         "rolling_7d": "7-day average TDEE",
         "rolling_30d": "30-day average TDEE"
       }
+    },
+    "weight_goal_mode": {
+      "options": {
+        "loss": "Weight loss",
+        "maintenance": "Maintenance",
+        "gain": "Weight gain"
+      }
+    },
+    "protein_basis": {
+      "options": {
+        "total_body_weight": "Total body weight (g/kg)",
+        "fat_free_mass": "Fat-free mass (g/kg FFM, needs body composition)",
+        "absolute_grams": "Absolute grams per day"
+      }
+    },
+    "tef_mode": {
+      "options": {
+        "macronutrient_specific": "Macronutrient-specific (recommended)",
+        "flat_10_percent": "Flat 10% of intake"
+      }
     }
   },
   "entity": {
@@ -185,6 +273,17 @@
       "acwr": { "name": "ACWR" },
       "weekly_aerobic_minutes": { "name": "Weekly aerobic minutes" },
       "monthly_distance_progress": { "name": "Monthly distance progress" },
+      "intake_calories": { "name": "Intake calories" },
+      "intake_protein": { "name": "Intake protein" },
+      "intake_carbs": { "name": "Intake carbohydrates" },
+      "intake_fat": { "name": "Intake fat" },
+      "intake_fiber": { "name": "Intake fiber" },
+      "energy_balance": { "name": "Energy balance" },
+      "protein_adequacy": { "name": "Protein adequacy" },
+      "tef": { "name": "Thermic effect of food" },
+      "protein_per_kg": { "name": "Protein per kg" },
+      "rolling_7d_deficit": { "name": "7-day energy balance" },
+      "meal_protein_distribution": { "name": "Meals meeting protein target" },
       "exercise_count": { "name": "Exercise sessions" },
       "correction_factor": { "name": "Correction factor" },
       "daily_budget": { "name": "Daily budget" },
@@ -195,6 +294,13 @@
       "muscle_mass": { "name": "Muscle mass" },
       "bmi": { "name": "BMI" },
       "weight_trend": { "name": "Weight trend" }
+    },
+    "binary_sensor": {
+      "below_intake_floor": { "name": "Below intake floor" },
+      "protein_inadequate": { "name": "Protein inadequate" },
+      "aggressive_deficit": { "name": "Aggressive deficit" },
+      "incomplete_logging": { "name": "Incomplete logging" },
+      "sparkyfitness_connected": { "name": "SparkyFitness connected" }
     }
   }
 }
