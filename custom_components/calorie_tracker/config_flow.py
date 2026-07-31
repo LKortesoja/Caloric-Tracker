@@ -500,7 +500,7 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                     )
                 ),
                 vol.Required(
-                    CONF_SPARKY_PUSH_EXERCISE, default=True
+                    CONF_SPARKY_PUSH_EXERCISE, default=False
                 ): selector.BooleanSelector(),
                 vol.Required(
                     CONF_ENABLE_MANUAL_ENTRY, default=True

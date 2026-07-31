@@ -103,6 +103,9 @@
           "poll_interval_minutes": "Poll interval",
           "sparkyfitness_push_exercise": "Push completed workouts to SparkyFitness",
           "enable_manual_entry": "Allow manual food entry fallback"
+        },
+        "data_description": {
+          "sparkyfitness_push_exercise": "Leave OFF if SparkyFitness already receives workouts from another source (e.g. Health Connect) — a second writer would create duplicate exercise entries. Enable only when Home Assistant is the sole exercise source."
         }
       },
       "nutrition": {

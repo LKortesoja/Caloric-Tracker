@@ -804,8 +804,10 @@ class CalorieTrackerCoordinator:
 
     def _maybe_push_exercise(self, session: dict[str, Any]) -> None:
         """Queue a write-back of a completed session to SparkyFitness."""
+        # Default off: most SparkyFitness instances already receive workouts
+        # via Health Connect, and a second writer would double-log exercise.
         if self._sparky_client is None or not self._conf(
-            CONF_SPARKY_PUSH_EXERCISE, True
+            CONF_SPARKY_PUSH_EXERCISE, False
         ):
             return
         external_id = exercise_external_id(session)

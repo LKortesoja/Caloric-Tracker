@@ -203,9 +203,11 @@ barcode scanning, or imputation (missing macros stay unknown, never zero).
   (not zero) if the source is down with no cached data; the last successful
   day is cached so a restart during an outage does not wipe the day. Each poll
   replaces the whole day, so mid-day edits and deletions upstream are honored.
-- **Write-back** — completed Peloton/manual workouts are pushed to
-  SparkyFitness with a stable external id, so reloads cannot create
-  duplicates. Toggleable in config.
+- **Write-back (optional, default off)** — completed Peloton/manual workouts
+  can be pushed to SparkyFitness with a stable external id so reloads cannot
+  create duplicates. Leave this **off** if SparkyFitness already receives
+  workouts from another source such as Health Connect — a second writer would
+  double-log exercise. Intake polling is one-way and unaffected either way.
 - **Manual fallback** — `calorie_tracker.log_food` records intake when the
   instance is offline; manual entries are merged and counted separately
   (`manual_entry_count`).
