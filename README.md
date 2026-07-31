@@ -238,6 +238,15 @@ barcode scanning, or imputation (missing macros stay unknown, never zero).
 > centralized in `const.py` / `sparkyfitness.py::normalize_entry`. If your
 > instance version uses a different layout, those are the only places to edit.
 
+### Reconfiguring without losing history
+
+Everything is editable after setup via the integration's **Configure** button,
+which opens a menu: *Goals & calculation settings*, *SparkyFitness connection*
+(URL, API key, polling — validated live; leave the key blank to keep the
+stored one), and *Scale, Peloton & device sensors* (remap any entity). None of
+these require deleting the integration, so your accumulated weight, exercise,
+and intake history is preserved.
+
 ## Smart scale behavior
 
 - Weight updates trigger an immediate recalculation of RMR and all downstream

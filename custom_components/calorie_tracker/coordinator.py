@@ -60,7 +60,6 @@ from .const import (
     CONF_SPARKY_PUSH_EXERCISE,
     CONF_SPARKY_USER_ID,
     CONF_SPARKY_VERIFY_SSL,
-    CONF_TARGET_DAILY_DEFICIT,
     CONF_TEF_MODE,
     CONF_WEIGHT_GOAL_MODE,
     DEFAULT_DEFICIT_CUTOFF_HOUR,
@@ -70,7 +69,6 @@ from .const import (
     DEFAULT_PROTEIN_G_PER_KG,
     DEFAULT_PROTEIN_G_PER_KG_FFM,
     DEFAULT_SPARKY_POLL_INTERVAL,
-    DEFAULT_TARGET_DAILY_DEFICIT,
     DYNAMIC_RMR_MAX_AGE_HOURS,
     IMPLAUSIBLE_INTAKE_KCAL,
     IMPLAUSIBLE_PROTEIN_G,
@@ -80,7 +78,6 @@ from .const import (
     SEX_MALE,
     SPARKY_STALE_HOURS,
     TEF_MODE_MACRO,
-    WEIGHT_GOAL_LOSS,
     WEIGHT_GOAL_MAINTENANCE,
 )
 from .const import (
@@ -130,7 +127,6 @@ from .const import (
     DEFAULT_MONTHLY_CYCLING_DISTANCE_GOAL,
     DEFAULT_MONTHLY_STRENGTH_GOAL,
     DEFAULT_POLARIZATION_THRESHOLD_PCT,
-    DEFAULT_PROTEIN_MULTIPLIER,
     DEFAULT_WEEKLY_AEROBIC_MINUTES_GOAL,
     DEFAULT_WEEKLY_REST_DAYS_TARGET,
     DEFAULT_RMR_EQUATION,
@@ -1609,6 +1605,9 @@ class CalorieTrackerCoordinator:
                 severity=ir.IssueSeverity.WARNING,
                 translation_key="implausible_intake",
             )
+        elif not implausible and self.intake_implausible:
+            # Upstream data was corrected; clear the repair issue.
+            ir.async_delete_issue(self.hass, DOMAIN, "implausible_intake")
         self.intake_implausible = implausible
 
     def _maybe_notify_below_floor(self) -> None:

@@ -134,6 +134,32 @@ def _sensor_selector() -> selector.EntitySelector:
     return selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
 
 
+async def _async_validate_sparky_connection(
+    hass: Any, config: dict[str, Any]
+) -> str | None:
+    """Issue a lightweight authenticated request; return an error key or None."""
+    client = SparkyFitnessClient(
+        session=async_get_clientsession(
+            hass, verify_ssl=config.get(CONF_SPARKY_VERIFY_SSL, True)
+        ),
+        base_url=config[CONF_SPARKY_BASE_URL],
+        api_key=config[CONF_SPARKY_API_KEY],
+        user_id=config.get(CONF_SPARKY_USER_ID) or None,
+        verify_ssl=config.get(CONF_SPARKY_VERIFY_SSL, True),
+    )
+    try:
+        await client.async_validate()
+    except SparkyFitnessAuthError:
+        return "invalid_auth"
+    except SparkyFitnessSslError:
+        return "ssl_error"
+    except SparkyFitnessConnectionError:
+        return "cannot_connect"
+    except SparkyFitnessSchemaError:
+        return "unexpected_schema"
+    return None
+
+
 def _parse_date_of_birth(raw: str) -> date | None:
     """Parse a typed date of birth; accepts ISO and US formats."""
     raw = raw.strip()
@@ -457,31 +483,6 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
 
     # ---------------- Step 7: SparkyFitness connection ----------------
 
-    async def _async_validate_sparkyfitness(
-        self, user_input: dict[str, Any]
-    ) -> str | None:
-        """Issue a lightweight authenticated request; return an error key."""
-        client = SparkyFitnessClient(
-            session=async_get_clientsession(
-                self.hass, verify_ssl=user_input.get(CONF_SPARKY_VERIFY_SSL, True)
-            ),
-            base_url=user_input[CONF_SPARKY_BASE_URL],
-            api_key=user_input[CONF_SPARKY_API_KEY],
-            user_id=user_input.get(CONF_SPARKY_USER_ID) or None,
-            verify_ssl=user_input.get(CONF_SPARKY_VERIFY_SSL, True),
-        )
-        try:
-            await client.async_validate()
-        except SparkyFitnessAuthError:
-            return "invalid_auth"
-        except SparkyFitnessSslError:
-            return "ssl_error"
-        except SparkyFitnessConnectionError:
-            return "cannot_connect"
-        except SparkyFitnessSchemaError:
-            return "unexpected_schema"
-        return None
-
     async def async_step_sparkyfitness(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -494,7 +495,9 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 CONF_SPARKY_API_KEY
             ):
                 errors["base"] = "sparkyfitness_credentials_required"
-            elif error := await self._async_validate_sparkyfitness(user_input):
+            elif error := await _async_validate_sparky_connection(
+                self.hass, user_input
+            ):
                 errors["base"] = error
             else:
                 self._data.update(user_input)
@@ -667,7 +670,9 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
                 **entry.data,
                 CONF_SPARKY_API_KEY: user_input[CONF_SPARKY_API_KEY],
             }
-            if error := await self._async_validate_sparkyfitness(candidate):
+            if error := await _async_validate_sparky_connection(
+                self.hass, candidate
+            ):
                 errors["base"] = error
             else:
                 return self.async_update_reload_and_abort(
@@ -693,18 +698,31 @@ class CalorieTrackerConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class CalorieTrackerOptionsFlow(OptionsFlow):
-    """Adjust tunable settings without re-running the full setup."""
+    """Adjust any setting without deleting and re-adding the integration."""
+
+    def _current(self, key: str, default: Any = None) -> Any:
+        return self.config_entry.options.get(
+            key, self.config_entry.data.get(key, default)
+        )
+
+    def _merged(self, user_input: dict[str, Any]) -> dict[str, Any]:
+        """Merge with existing options so other pages' settings survive."""
+        return {**self.config_entry.options, **user_input}
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+        return self.async_show_menu(
+            step_id="init", menu_options=["general", "connection", "devices"]
+        )
 
-        def current(key: str, default: Any) -> Any:
-            return self.config_entry.options.get(
-                key, self.config_entry.data.get(key, default)
-            )
+    async def async_step_general(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        if user_input is not None:
+            return self.async_create_entry(title="", data=self._merged(user_input))
+
+        current = self._current
 
         schema = vol.Schema(
             {
@@ -877,9 +895,67 @@ class CalorieTrackerOptionsFlow(OptionsFlow):
                     CONF_ADAPTIVE_THERMO,
                     default=current(CONF_ADAPTIVE_THERMO, False),
                 ): selector.BooleanSelector(),
+            }
+        )
+        return self.async_show_form(step_id="general", data_schema=schema)
+
+    async def async_step_connection(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Edit the SparkyFitness connection in place (history is kept)."""
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            # A blank API key means "keep the stored one".
+            if not user_input.get(CONF_SPARKY_API_KEY):
+                user_input[CONF_SPARKY_API_KEY] = self._current(
+                    CONF_SPARKY_API_KEY, ""
+                )
+            if user_input.get(CONF_SPARKY_ENABLED):
+                if not user_input.get(CONF_SPARKY_BASE_URL) or not user_input.get(
+                    CONF_SPARKY_API_KEY
+                ):
+                    errors["base"] = "sparkyfitness_credentials_required"
+                elif error := await _async_validate_sparky_connection(
+                    self.hass, user_input
+                ):
+                    errors["base"] = error
+            if not errors:
+                return self.async_create_entry(
+                    title="", data=self._merged(user_input)
+                )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SPARKY_ENABLED,
+                    default=bool(self._current(CONF_SPARKY_ENABLED, False)),
+                ): selector.BooleanSelector(),
+                vol.Optional(
+                    CONF_SPARKY_BASE_URL,
+                    description={
+                        "suggested_value": self._current(CONF_SPARKY_BASE_URL, "")
+                    },
+                ): selector.TextSelector(
+                    selector.TextSelectorConfig(type=selector.TextSelectorType.URL)
+                ),
+                vol.Optional(CONF_SPARKY_API_KEY): selector.TextSelector(
+                    selector.TextSelectorConfig(
+                        type=selector.TextSelectorType.PASSWORD
+                    )
+                ),
+                vol.Optional(
+                    CONF_SPARKY_USER_ID,
+                    description={
+                        "suggested_value": self._current(CONF_SPARKY_USER_ID, "")
+                    },
+                ): selector.TextSelector(),
+                vol.Required(
+                    CONF_SPARKY_VERIFY_SSL,
+                    default=bool(self._current(CONF_SPARKY_VERIFY_SSL, True)),
+                ): selector.BooleanSelector(),
                 vol.Required(
                     CONF_SPARKY_POLL_INTERVAL,
-                    default=current(
+                    default=self._current(
                         CONF_SPARKY_POLL_INTERVAL, DEFAULT_SPARKY_POLL_INTERVAL
                     ),
                 ): selector.NumberSelector(
@@ -891,6 +967,56 @@ class CalorieTrackerOptionsFlow(OptionsFlow):
                         mode=selector.NumberSelectorMode.BOX,
                     )
                 ),
+                vol.Required(
+                    CONF_SPARKY_PUSH_EXERCISE,
+                    default=bool(self._current(CONF_SPARKY_PUSH_EXERCISE, False)),
+                ): selector.BooleanSelector(),
+                vol.Required(
+                    CONF_ENABLE_MANUAL_ENTRY,
+                    default=bool(self._current(CONF_ENABLE_MANUAL_ENTRY, True)),
+                ): selector.BooleanSelector(),
             }
         )
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return self.async_show_form(
+            step_id="connection", data_schema=schema, errors=errors
+        )
+
+    async def async_step_devices(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Remap smart scale, Peloton, and dynamic-RMR entities in place."""
+        if user_input is not None:
+            return self.async_create_entry(title="", data=self._merged(user_input))
+
+        def entity_field(key: str) -> vol.Optional:
+            return vol.Optional(
+                key, description={"suggested_value": self._current(key)}
+            )
+
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_SCALE_ENABLED,
+                    default=bool(self._current(CONF_SCALE_ENABLED, False)),
+                ): selector.BooleanSelector(),
+                entity_field(CONF_WEIGHT_ENTITY): _sensor_selector(),
+                entity_field(CONF_BODY_FAT_ENTITY): _sensor_selector(),
+                entity_field(CONF_MUSCLE_MASS_ENTITY): _sensor_selector(),
+                entity_field(CONF_BONE_MASS_ENTITY): _sensor_selector(),
+                entity_field(CONF_WATER_PCT_ENTITY): _sensor_selector(),
+                entity_field(CONF_BMI_ENTITY): _sensor_selector(),
+                vol.Required(
+                    CONF_PELOTON_ENABLED,
+                    default=bool(self._current(CONF_PELOTON_ENABLED, False)),
+                ): selector.BooleanSelector(),
+                entity_field(CONF_PELOTON_WORKOUT_ENTITY): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain=["sensor", "binary_sensor"])
+                ),
+                entity_field(CONF_PELOTON_CALORIES_ENTITY): _sensor_selector(),
+                entity_field(CONF_PELOTON_DURATION_ENTITY): _sensor_selector(),
+                entity_field(CONF_PELOTON_DISTANCE_ENTITY): _sensor_selector(),
+                entity_field(CONF_PELOTON_HR_ENTITY): _sensor_selector(),
+                entity_field(CONF_DYNAMIC_RMR_ENTITY): _sensor_selector(),
+            }
+        )
+        return self.async_show_form(step_id="devices", data_schema=schema)

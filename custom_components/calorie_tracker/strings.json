@@ -189,6 +189,51 @@
     "step": {
       "init": {
         "title": "Calorie Tracker options",
+        "menu_options": {
+          "general": "Goals & calculation settings",
+          "connection": "SparkyFitness connection",
+          "devices": "Scale, Peloton & device sensors"
+        }
+      },
+      "connection": {
+        "title": "SparkyFitness connection",
+        "description": "Edit the connection in place — your accumulated history is kept. Leave the API key blank to keep the stored key.",
+        "data": {
+          "sparkyfitness_enabled": "Enable SparkyFitness sync",
+          "sparkyfitness_base_url": "Base URL",
+          "sparkyfitness_api_key": "API key (blank = keep current)",
+          "sparkyfitness_user_id": "User ID (multi-user instances)",
+          "verify_ssl": "Verify SSL certificate",
+          "poll_interval_minutes": "Poll interval",
+          "sparkyfitness_push_exercise": "Push completed workouts to SparkyFitness",
+          "enable_manual_entry": "Allow manual food entry fallback"
+        },
+        "data_description": {
+          "sparkyfitness_push_exercise": "Leave OFF if SparkyFitness already receives workouts from another source (e.g. Health Connect)."
+        }
+      },
+      "devices": {
+        "title": "Device sensors",
+        "description": "Remap entities in place — history is kept.",
+        "data": {
+          "smart_scale_enabled": "Enable smart scale integration",
+          "weight_entity": "Weight entity",
+          "body_fat_entity": "Body fat entity (% or fat mass)",
+          "muscle_mass_entity": "Muscle mass entity",
+          "bone_mass_entity": "Bone mass entity",
+          "water_pct_entity": "Water % entity",
+          "bmi_entity": "BMI entity",
+          "peloton_enabled": "Enable Peloton integration",
+          "peloton_workout_entity": "Peloton workout status entity",
+          "peloton_calories_entity": "Peloton calories entity",
+          "peloton_duration_entity": "Peloton duration entity",
+          "peloton_distance_entity": "Peloton distance entity",
+          "peloton_heart_rate_entity": "Peloton heart rate entity",
+          "dynamic_rmr_entity": "Dynamic RMR sensor"
+        }
+      },
+      "general": {
+        "title": "Goals & calculation settings",
         "data": {
           "display_unit": "Weight unit",
           "exercise_correction_factor": "Exercise correction factor",
@@ -210,10 +255,16 @@
           "tef_calculation_mode": "TEF calculation mode",
           "protein_underreporting_correction_pct": "Protein underreporting correction",
           "deficit_cutoff_hour": "End-of-day cutoff hour",
-          "adaptive_thermogenesis_enabled": "Adaptive thermogenesis correction",
-          "poll_interval_minutes": "SparkyFitness poll interval"
+          "adaptive_thermogenesis_enabled": "Adaptive thermogenesis correction"
         }
       }
+    },
+    "error": {
+      "cannot_connect": "Cannot reach the SparkyFitness host. Check the URL and that the instance is running.",
+      "invalid_auth": "SparkyFitness rejected the API key.",
+      "ssl_error": "TLS certificate verification failed. Fix the certificate or disable SSL verification.",
+      "unexpected_schema": "Connected, but the response did not look like a SparkyFitness API. Check the base URL.",
+      "sparkyfitness_credentials_required": "Base URL and API key are required when SparkyFitness sync is enabled."
     }
   },
   "issues": {
