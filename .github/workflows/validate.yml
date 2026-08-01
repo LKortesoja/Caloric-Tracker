@@ -15,7 +15,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: home-assistant/actions/hassfest@master
+      - name: Run hassfest
+        run: |
+          set +e
+          docker run --rm -v "${{ github.workspace }}://github/workspace" \
+            ghcr.io/home-assistant/hassfest 2>&1 | tee hassfest.log
+          code=${PIPESTATUS[0]}
+          if [ "$code" -ne 0 ]; then
+            # Re-emit output as annotations so failures are readable from the
+            # checks API without downloading the raw log.
+            while IFS= read -r line; do
+              [ -n "$line" ] && echo "::error::${line}"
+            done < hassfest.log
+          fi
+          exit "$code"
 
   hacs:
     name: HACS
