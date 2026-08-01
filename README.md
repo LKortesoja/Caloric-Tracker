@@ -340,12 +340,32 @@ consider raising `recorder: purge_keep_days:` (default 10) in
 
 ## Development
 
-The metabolic math lives in `calculator.py` with no Home Assistant
-dependencies. Run the unit tests with:
+All the science lives in Home-Assistant-free modules, so it can be tested
+with plain `pytest`:
 
-```
+| Module | Contains |
+|---|---|
+| `calculator.py` | RMR equations, MET math, unit conversion, EWMA, percentiles |
+| `recommender.py` | ACWR, recovery spacing, polarization, decision matrix |
+| `energy_balance.py` | TEF, deficit bands, protein targets, adaptive thermogenesis |
+| `sparkyfitness.py` | API client (session injected, so tests need no network) |
+
+```bash
 python -m pytest tests/ -v
 ```
+
+`tests/test_manifest_and_services.py` mirrors the packaging rules that
+Home Assistant's `hassfest` enforces (service/field descriptions, manifest
+key order, translation sync, no byte-order marks), so packaging mistakes fail
+locally rather than in CI.
+
+**Windows note:** save files as **UTF-8 without BOM**. PowerShell 5.1's
+`Set-Content -Encoding utf8` writes a byte-order mark, which Python tolerates
+on import but `hassfest` rejects with `SyntaxError: invalid non-printable
+character U+FEFF`. The test suite guards against this.
+
+Every push runs [`.github/workflows/validate.yml`](.github/workflows/validate.yml):
+hassfest, HACS validation, ruff, and the test suite.
 
 ## License
 
