@@ -6,12 +6,15 @@ means the mistake surfaces in `pytest` instead of a red check on GitHub.
 """
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
 
 import pytest
 import yaml
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 COMPONENT = Path(__file__).resolve().parent.parent / "custom_components" / "calorie_tracker"
 
@@ -23,6 +26,46 @@ TRANSLATIONS = json.loads(
 )
 INIT_SOURCE = (COMPONENT / "__init__.py").read_text(encoding="utf-8")
 CONST_SOURCE = (COMPONENT / "const.py").read_text(encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# File encoding
+#
+# A UTF-8 BOM crashed hassfest: it calls ast.parse(path.read_text()), which
+# chokes on U+FEFF even though Python's own import machinery tolerates it.
+# Windows editors and PowerShell's `Set-Content -Encoding utf8` add one
+# silently, so this is worth asserting rather than trusting.
+# ---------------------------------------------------------------------------
+
+TEXT_FILES = sorted(
+    p
+    for ext in ("*.py", "*.json", "*.yaml", "*.yml", "*.md")
+    for p in REPO_ROOT.rglob(ext)
+    if not any(
+        part in {".git", "__pycache__", ".pytest_cache", ".ruff_cache"}
+        for part in p.parts
+    )
+)
+
+
+@pytest.mark.parametrize(
+    "path", TEXT_FILES, ids=[str(p.relative_to(REPO_ROOT)) for p in TEXT_FILES]
+)
+def test_file_has_no_byte_order_mark(path):
+    assert not path.read_bytes().startswith(b"\xef\xbb\xbf"), (
+        f"{path.relative_to(REPO_ROOT)} starts with a UTF-8 BOM; "
+        "rewrite it as UTF-8 without BOM"
+    )
+
+
+@pytest.mark.parametrize(
+    "path",
+    [p for p in TEXT_FILES if p.suffix == ".py"],
+    ids=[str(p.relative_to(REPO_ROOT)) for p in TEXT_FILES if p.suffix == ".py"],
+)
+def test_module_parses_the_way_hassfest_parses_it(path):
+    """hassfest walks the AST of every module; mirror that exactly."""
+    ast.parse(path.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------

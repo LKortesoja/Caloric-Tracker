@@ -1,4 +1,4 @@
-﻿"""Sensor platform for the Calorie Tracker integration."""
+"""Sensor platform for the Calorie Tracker integration."""
 from __future__ import annotations
 
 from collections.abc import Callable

@@ -15,26 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      # Pulled separately and quietly: progress output would otherwise consume
-      # the 10-annotations-per-step budget before the real error is emitted.
-      - name: Pull hassfest image
-        run: docker pull --quiet ghcr.io/home-assistant/hassfest
-
-      - name: Run hassfest
-        run: |
-          set +e
-          docker run --rm -v "${{ github.workspace }}://github/workspace" \
-            ghcr.io/home-assistant/hassfest > hassfest.log 2>&1
-          code=$?
-          cat hassfest.log
-          if [ "$code" -ne 0 ]; then
-            # Re-emit the tail as annotations so failures are readable from the
-            # checks API without downloading the raw log.
-            grep -v '^\s*$' hassfest.log | tail -n 8 | while IFS= read -r line; do
-              echo "::error::${line}"
-            done
-          fi
-          exit "$code"
+      - uses: home-assistant/actions/hassfest@master
 
   hacs:
     name: HACS
