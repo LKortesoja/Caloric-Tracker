@@ -25,6 +25,9 @@ jobs:
       - uses: hacs/action@main
         with:
           category: integration
+          # This domain is not in home-assistant/brands (that repo is for
+          # integrations shipped with Home Assistant), so skip that check.
+          ignore: brands
 
   tests:
     name: Unit tests
@@ -34,7 +37,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install pytest ruff
+      - run: pip install pytest ruff pyyaml
       - name: Lint (pyflakes-level)
         run: ruff check custom_components tests --select F,E9
       - name: Run tests

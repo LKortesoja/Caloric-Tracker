@@ -131,12 +131,14 @@ log_food:
   fields:
     food_name:
       name: Food name
+      description: Label for the entry, shown in the food log attributes.
       required: true
       example: "Greek yogurt"
       selector:
         text:
     calories:
       name: Calories
+      description: Energy content of the entry in kcal.
       required: true
       example: 150
       selector:
@@ -147,6 +149,9 @@ log_food:
           mode: box
     protein_g:
       name: Protein
+      description: >-
+        Protein in grams. Leave blank if unknown — missing macros are never
+        assumed to be zero.
       required: false
       example: 15
       selector:
@@ -157,6 +162,7 @@ log_food:
           mode: box
     carbs_g:
       name: Carbohydrates
+      description: Carbohydrate in grams. Leave blank if unknown.
       required: false
       selector:
         number:
@@ -166,6 +172,7 @@ log_food:
           mode: box
     fat_g:
       name: Fat
+      description: Fat in grams. Leave blank if unknown.
       required: false
       selector:
         number:
@@ -175,6 +182,7 @@ log_food:
           mode: box
     fiber_g:
       name: Fiber
+      description: Dietary fiber in grams. Leave blank if unknown.
       required: false
       selector:
         number:
@@ -211,6 +219,9 @@ set_protein_target:
           mode: box
     basis:
       name: Basis
+      description: >-
+        Optionally switch the target basis at the same time. Omit to keep the
+        currently configured basis.
       required: false
       selector:
         select:
@@ -225,6 +236,9 @@ set_deficit_target:
   fields:
     kcal:
       name: Deficit
+      description: >-
+        Target daily deficit in kcal. Guidelines recommend 500-750 kcal/day
+        for weight reduction.
       required: true
       example: 500
       selector:
